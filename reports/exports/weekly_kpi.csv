@@ -1,4 +1,4 @@
-week_start,runs,fails,yield_pct
+week_start,runs,fails,pass_rate_pct
 2008-07-14,13,3,76.92307692307692
 2008-07-21,21,2,90.47619047619048
 2008-07-28,48,10,79.16666666666666

@@ -242,12 +242,12 @@ def random_split_cv(X: pd.DataFrame, y: np.ndarray, cfg, n_splits: int = 10) -> 
 
 
 def walk_forward(
-    X: pd.DataFrame, y: np.ndarray, cfg, start_frac: float = 0.5, block: int = 100, window: int | None = None,
+    X: pd.DataFrame, y: np.ndarray, cfg, start: int, block: int = 100, window: int | None = None,
     models: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     """Rolling-origin evaluation with periodic retraining.
 
-    The first ``start_frac`` of runs seed the model. Each following block
+    Runs before index ``start`` seed the model. Each following block
     of ``block`` runs is scored by a model trained on everything before it
     (``window=None``, expanding) or on only the most recent ``window`` runs
     (sliding). A "static" variant trained once on the seed period is scored
@@ -258,7 +258,6 @@ def walk_forward(
     zoo = model_zoo(cfg)
     names = models or list(zoo)
     n = len(y)
-    start = int(round(n * start_frac))
     edges = list(range(start, n, block)) + [n]
     preds = {f"{nm} | {mode}": np.full(n, np.nan) for nm in names for mode in ("static", "retrained")}
     rows = []

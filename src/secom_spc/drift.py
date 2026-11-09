@@ -17,25 +17,44 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.pipeline import make_pipeline
 
+from .preprocess import robust_center_scale
 
-def ks_drift(X: pd.DataFrame, early: np.ndarray, late: np.ndarray) -> pd.DataFrame:
-    """Two-sample Kolmogorov-Smirnov statistic per sensor (early vs late)."""
+
+def shift_spread(X: pd.DataFrame, early: np.ndarray, late: np.ndarray) -> pd.DataFrame:
+    """How far each sensor moved between two periods, without spec limits.
+
+    Columns
+    -------
+    shift_robust_sd
+        (median_late - median_early) / robust SD of the early period, where
+        the robust SD is 1.4826 x MAD. Zero for a sensor that did not move.
+    spread_ratio
+        robust SD late / robust SD early. One for unchanged spread.
+    ks_stat, ks_p
+        two-sample Kolmogorov-Smirnov test of the full distributions.
+    early_constant
+        True when the early-period robust SD is zero (the sensor reported a
+        single value), in which case the ratios are undefined.
+    """
     rows = []
     for c in X.columns:
-        a = X[c].values[early]
-        b = X[c].values[late]
+        a = X[c].to_numpy()[early]
+        b = X[c].to_numpy()[late]
         a, b = a[np.isfinite(a)], b[np.isfinite(b)]
         if a.size < 10 or b.size < 10:
             continue
         ks = stats.ks_2samp(a, b)
-        sd = np.std(a, ddof=1)
+        med_a, sd_a = robust_center_scale(a)
+        med_b, sd_b = robust_center_scale(b)
+        const = not sd_a > 0
         rows.append(
             {
                 "sensor": c,
+                "shift_robust_sd": np.nan if const else (med_b - med_a) / sd_a,
+                "spread_ratio": np.nan if const else sd_b / sd_a,
                 "ks_stat": ks.statistic,
                 "ks_p": ks.pvalue,
-                "median_shift_in_early_sd": (np.median(b) - np.median(a)) / sd if sd > 0 else np.inf,
-                "sd_ratio_late_early": np.std(b, ddof=1) / sd if sd > 0 else np.inf,
+                "early_constant": const,
             }
         )
     return pd.DataFrame(rows).set_index("sensor").sort_values("ks_stat", ascending=False)

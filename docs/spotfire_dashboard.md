@@ -10,14 +10,14 @@ Load each file with **File > Add data > Local file**. Keep column types as detec
 
 | Spotfire table | File | Grain | Key columns |
 |---|---|---|---|
-| `Runs` | `runs.csv` | one row per wafer run (1567) | `run_id`, `timestamp` (DateTime), `result`, `spc_phase`, `hotelling_t2`, `spe_q`, `*_ucl*`, `multivariate_alarm_empirical`, `n_sensors_beyond_3sigma`, `predicted_fail_prob` |
-| `DailyKPI` | `daily_kpi.csv` | one row per production day (86) | `date` (Date), `runs`, `fails`, `yield_pct`, `yield_7d`, `p_ucl`, `p_ooc_high`, `laney_ucl` |
-| `WeeklyKPI` | `weekly_kpi.csv` | one row per week | `week_start`, `runs`, `fails`, `yield_pct` |
+| `Runs` | `runs.csv` | one row per production run (1567) | `run_id`, `timestamp` (DateTime), `result`, `spc_phase`, `monitor_period`, `hotelling_t2`, `spe_q`, `*_ucl*`, `alarm_frozen_limits`, `alarm_rebaselined`, `alarm_rolling`, `n_sensors_beyond_3sigma`, `predicted_fail_prob` |
+| `DailyKPI` | `daily_kpi.csv` | one row per production day (86) | `date` (Date), `runs`, `fails`, `pass_rate_pct`, `pass_rate_7d`, `p_ucl`, `p_ooc_high`, `laney_ucl` |
+| `WeeklyKPI` | `weekly_kpi.csv` | one row per week | `week_start`, `runs`, `fails`, `pass_rate_pct` |
 | `SensorSPC` | `spc_top_sensors_long.csv` | run x sensor, top 20 sensors (31 340 rows) | `sensor`, `run_id`, `value`, `cl`, `lcl`, `ucl`, `z`, `nelson_rule1..8`, `any_rule`, `ewma*`, `cusum*`, `phase`, `fail` |
-| `SensorRanking` | `sensor_ranking.csv` | one row per retained sensor (324) | `sensor`, `consensus_rank`, `auc`, `within_week_auc`, `test_auc`, `mw_q`, `stability_freq`, `alarm_lift` |
-| `Capability` | `capability.csv` | one row per sensor | `sensor`, `Ppk_I`, `Ppk_II`, `delta_Ppk`, `mean_shift_sigma`, `sd_ratio_II_I` |
+| `SensorRanking` | `sensor_ranking.csv` | one row per retained sensor (321) | `sensor`, `consensus_rank`, `auc`, `within_week_auc`, `test_auc`, `mw_q`, `stability_freq`, `alarm_lift` |
+| `ShiftSpread` | `sensor_shift_spread.csv` | one row per sensor | `sensor`, `shift_robust_sd`, `spread_ratio`, `ks_stat`, `ks_p` |
 
-Relations (**Data > Data table properties > Relations**): `SensorSPC.sensor = SensorRanking.sensor = Capability.sensor` and `SensorSPC.run_id = Runs.run_id`. This lets a marking on one page filter the others.
+Relations (**Data > Data table properties > Relations**): `SensorSPC.sensor = SensorRanking.sensor = ShiftSpread.sensor` and `SensorSPC.run_id = Runs.run_id`. This lets a marking on one page filter the others.
 
 ## 2. Calculated columns
 
@@ -25,7 +25,7 @@ Add these with **Data > Add calculated column**.
 
 ```text
 # Runs
-AlarmStatus     = If([multivariate_alarm_empirical], "ALARM", "OK")
+AlarmStatus     = If([alarm_rebaselined], "ALARM", "OK")
 RunDate         = Date([timestamp])
 
 # SensorSPC
@@ -40,12 +40,12 @@ SigmaZone       = Case when Abs([z]) > 3 then "> 3s"
 
 ## 3. Pages and visuals
 
-### Page 1: Yield KPI
+### Page 1: Line-test pass rate
 
-* **KPI tiles** (KPI chart): overall yield `100 * (Count([run_id]) - Sum([fail])) / Count([run_id])` on `Runs`; Phase II yield (same, filtered `spc_phase = "II"`); days out of control `Sum(If([p_ooc_high],1,0))` on `DailyKPI`.
-* **Line chart**: `DailyKPI`, X = `date`, Y = `Avg([yield_pct])` as markers and `Avg([yield_7d])` as a line. Add a horizontal reference line at the Phase I baseline yield (91.5 %) via **Lines & Curves > Horizontal line**.
+* **KPI tiles** (KPI chart): overall line-test pass rate `100 * (Count([run_id]) - Sum([fail])) / Count([run_id])` on `Runs`; Phase II pass rate (same, filtered `spc_phase = "II"`); days out of control `Sum(If([p_ooc_high],1,0))` on `DailyKPI`.
+* **Line chart**: `DailyKPI`, X = `date`, Y = `Avg([pass_rate_pct])` as markers and `Avg([pass_rate_7d])` as a line. Add a horizontal reference line at the Phase I pass rate (90.9 %) via **Lines & Curves > Horizontal line**.
 * **p chart**: Line chart, X = `date`, Y = `Sum([fails]) / Sum([runs])`. Add **Lines & Curves > Line from column values** for `p_ucl` (dashed). Color markers by `p_ooc_high` (red = True) and set the marker shape to a cross for True so the alarm does not rely on colour alone.
-* Optional rolling yield computed inside Spotfire rather than from the CSV: `Sum([passes]) OVER (LastPeriods(7, [date])) / Sum([runs]) OVER (LastPeriods(7, [date]))`.
+* Optional rolling pass rate computed inside Spotfire rather than from the CSV: `Sum([passes]) OVER (LastPeriods(7, [date])) / Sum([runs]) OVER (LastPeriods(7, [date]))`.
 
 ### Page 2: Sensor control charts
 
@@ -54,8 +54,8 @@ SigmaZone       = Case when Abs([z]) > 3 then "> 3s"
 * **Individuals chart**: Line chart, X = `run_id`, Y = `Avg([value])`. Lines from column values for `cl` (solid), `ucl` and `lcl` (dashed). Color by `PointStatus`; shape by `PointStatus`.
 * **Moving range chart** underneath: Y = `Avg([moving_range])` with line `mr_ucl`.
 * **EWMA chart**: Y = `Avg([ewma])` with lines `ewma_ucl` and `ewma_lcl`.
-* Vertical line at the Phase I / II boundary (run 784) via **Lines & Curves > Vertical line**.
-* **Text area** showing the selected sensor's row from `SensorRanking` (AUC, within-week AUC, q value, alarm lift) and `Capability` (Ppk I and II).
+* Vertical line at the detected process change (run 737, 7 September 2008) via **Lines & Curves > Vertical line**.
+* **Text area** showing the selected sensor's row from `SensorRanking` (AUC, within-week AUC, q value, alarm lift) and `ShiftSpread` (median shift and spread ratio).
 
 ### Page 3: Multivariate alarms
 
@@ -70,10 +70,11 @@ SigmaZone       = Case when Abs([z]) > 3 then "> 3s"
 * **Scatter plot** `auc` vs `within_week_auc` (the time-confound check), label by `sensor`, with a 45 degree reference line `y = x` from **Lines & Curves > Curve**.
 * **Table** of the ranking with conditional formatting on `mw_q` (< 0.05 bold).
 
-### Page 5: Capability drift
+### Page 5: Process shift
 
-* **Scatter plot** `Capability`: X = `Ppk_I`, Y = `Ppk_II`, reference lines at 1.0 and 1.33, label the five lowest `Ppk_II` sensors.
-* **Table** sorted by `delta_Ppk` ascending.
+* **Scatter plot** `ShiftSpread`: X = `shift_robust_sd`, Y = `spread_ratio` (log scale), reference lines at 0 and 1, label the sensors with the largest `ks_stat`.
+* **Table** sorted by `ks_stat` descending.
+* **Line chart** `Runs`: daily count of `alarm_frozen_limits`, `alarm_rebaselined` and `alarm_rolling`, to show the alarm burden of each limit strategy.
 
 ## 4. Alert logic
 
@@ -82,7 +83,7 @@ Spotfire **Data functions** or **Alerting** (Spotfire Automation Services) can w
 | Alert | Condition | Table |
 |---|---|---|
 | Yield excursion | `[p_ooc_high] = True` | `DailyKPI` |
-| Multivariate excursion | `[multivariate_alarm_empirical] = True` for 3 runs in a row | `Runs` |
+| Multivariate excursion | `[alarm_rebaselined] = True` for 3 runs in a row | `Runs` |
 | Sensor out of control | `[nelson_rule1] or [nelson_rule2] or [nelson_rule5]` for a top-10 sensor | `SensorSPC` |
 
 ## 5. Colour and accessibility conventions

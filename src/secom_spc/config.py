@@ -21,13 +21,21 @@ RAW_FILES = ("secom.data", "secom_labels.data", "secom.names")
 
 @dataclass(frozen=True)
 class Config:
-    # ---- Phase I / Phase II split (time ordered, no shuffling) ----
-    # Fraction of runs (in time order) used as the Phase I baseline that
-    # control limits, scalers, imputers and feature rankings are fit on.
+    # ---- Phase I / Phase II boundary (time ordered, no shuffling) ----
+    # "changepoint": Phase I ends at the change point detected in the
+    # sensors (see changepoint.py). "fraction": Phase I is the first
+    # ``phase1_frac`` of runs.
+    phase_boundary: str = "changepoint"
     phase1_frac: float = 0.5
-    # Phase I limits are estimated from PASSING runs only, mimicking a
+    # Limits are estimated from PASSING Phase I runs only, mimicking a
     # "known good" reference period.
     phase1_pass_only: bool = True
+
+    # ---- Re-baselining and monitoring ----
+    rebaseline_runs: int = 250       # passing runs after the change used to refit limits
+    rolling_window: int = 150        # passing runs in the daily-refit rolling monitor
+    high_fail_min_count: int = 3     # a "high-fail day" has at least this many failures ...
+    high_fail_rate_multiple: float = 2.0  # ... and a fail rate of at least this multiple of Phase I
 
     # ---- Preprocessing ----
     max_missing_frac: float = 0.50   # drop sensors missing in > 50 % of Phase I runs

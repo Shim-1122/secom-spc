@@ -2,5 +2,5 @@ stage,count
 input sensors,590
 dropped: > max missing fraction,24
 dropped: constant / near-constant,122
-dropped: near-duplicate (|r| above threshold),120
-retained,324
+dropped: near-duplicate (|r| above threshold),123
+retained,321

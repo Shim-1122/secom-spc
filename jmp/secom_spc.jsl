@@ -37,7 +37,7 @@ spc << Control Chart Builder(
 );
 
 // ---------------------------------------------------------------------------
-// 2. p chart of the daily fail fraction (yield KPI) with variable limits.
+// 2. p chart of the daily fail fraction (line-test pass-rate KPI) with variable limits.
 // ---------------------------------------------------------------------------
 daily = Open( root || "daily_kpi.csv" );
 daily << Control Chart Builder(
@@ -48,11 +48,11 @@ daily << Control Chart Builder(
 	Chart( Position( 1 ), Points( Statistic( "Proportion" ) ), Limits( Sigma( "Binomial (P)" ) ) )
 );
 
-// Yield trend with the 7-day rolling line
+// Pass-rate trend with the 7-day rolling line
 daily << Graph Builder(
 	Size( 900, 360 ),
 	Show Control Panel( 0 ),
-	Variables( X( :date ), Y( :yield_pct ), Y( :yield_7d, Position( 1 ) ) ),
+	Variables( X( :date ), Y( :pass_rate_pct ), Y( :pass_rate_7d, Position( 1 ) ) ),
 	Elements( Points( X, Y( 1 ) ), Line( X, Y( 2 ) ) )
 );
 

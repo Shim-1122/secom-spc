@@ -252,7 +252,7 @@ def xbar_s_figure(st: pd.DataFrame, sensor: str, size: int, path: Path) -> None:
     save(fig, path)
 
 
-def yield_figure(daily: pd.DataFrame, pch: pd.DataFrame, boundary_date, path: Path) -> None:
+def pass_rate_figure(daily: pd.DataFrame, pch: pd.DataFrame, boundary_date, path: Path) -> None:
     d = daily.date
     start = d.min() - pd.Timedelta(days=1)
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(WIDE, 6), sharex=True, gridspec_kw={"hspace": 0.38})
@@ -260,11 +260,11 @@ def yield_figure(daily: pd.DataFrame, pch: pd.DataFrame, boundary_date, path: Pa
     for ax in (a1, a2):
         ax.axvspan(start, boundary_date, color=PHASE_BG, lw=0, zorder=0)
     a1.axhline(100 * (1 - pch.pbar.iloc[0]), color=INK2, lw=1)
-    a1.scatter(d, daily.yield_pct, s=10, color=BLUE_LIGHT, zorder=2)
-    a1.plot(d, daily.yield_7d, color=BLUE, lw=2, zorder=3)
+    a1.scatter(d, daily.pass_rate_pct, s=10, color=BLUE_LIGHT, zorder=2)
+    a1.plot(d, daily.pass_rate_7d, color=BLUE, lw=2, zorder=3)
     a1.set_ylim(-3, 103)
     a1.yaxis.set_major_formatter(PercentFormatter(decimals=0))
-    _title(a1, "Line yield", "share of runs passing the line test; shaded = Phase I")
+    _title(a1, "Line-test pass rate", "share of runs passing the downstream line test; shaded = Phase I (before the detected change)")
     a1.legend(
         handles=[
             Line2D([], [], marker="o", color=BLUE_LIGHT, ls="", label="daily"),
@@ -392,35 +392,6 @@ def contribution_figure(contrib: list[tuple[str, float]], run_id: int, stat: str
 # ----------------------------------------------------------------------
 # Capability and drift
 # ----------------------------------------------------------------------
-def capability_figure(cap: pd.DataFrame, path: Path) -> None:
-    c = cap.dropna(subset=["Ppk_I", "Ppk_II"])
-    lo, hi = -0.25, 2.25
-    xs, ys = c.Ppk_I.clip(lo, hi), c.Ppk_II.clip(lo, hi)
-    clipped = (c.Ppk_I != xs) | (c.Ppk_II != ys)
-    fig, ax = plt.subplots(figsize=(6.6, 6))
-    ax.axhspan(lo, 1.0, color="#fcf3f3", lw=0, zorder=0)
-    ax.plot([lo, hi], [lo, hi], color=AXIS, lw=1)
-    ax.axhline(1.33, color=MUTED, ls=(0, (4, 3)), lw=1)
-    ax.axhline(1.0, color=CRIT, ls=(0, (4, 3)), lw=1)
-    ax.scatter(xs[~clipped], ys[~clipped], s=12, color=BLUE, alpha=0.75, lw=0)
-    ax.scatter(xs[clipped], ys[clipped], s=16, color=BLUE, marker="s", alpha=0.75, lw=0)
-    ax.text(hi, 1.33, "1.33 ", ha="right", va="bottom", fontsize=8, color=INK2)
-    ax.text(hi, 1.0, "1.00 ", ha="right", va="bottom", fontsize=8, color=CRIT)
-    worst = c.sort_values("delta_Ppk").head(3).sort_values("Ppk_II", ascending=False)
-    ax.scatter(worst.Ppk_I.clip(lo, hi), worst.Ppk_II.clip(lo, hi), s=22, color=ORANGE, zorder=3)
-    offsets = [(7, 0, "left"), (7, 12, "left"), (-7, -9, "right")]
-    for (s_, r), (dx, dy, ha) in zip(worst.iterrows(), offsets):
-        ax.annotate(f"{s_}  {r.Ppk_I:.2f} \u2192 {r.Ppk_II:.2f}", (np.clip(r.Ppk_I, lo, hi), np.clip(r.Ppk_II, lo, hi)),
-                    xytext=(dx, dy), textcoords="offset points", fontsize=7.5, color=INK2, ha=ha, va="center")
-    ax.set_xlim(lo, hi)
-    ax.set_ylim(lo, hi)
-    ax.set_aspect("equal")
-    ax.set_xlabel("Ppk, Phase I")
-    ax.set_ylabel("Ppk, Phase II")
-    _title(ax, "Capability drift against proxy limits", "below the diagonal: lost capability; orange: largest losses; squares: off scale")
-    save(fig, path)
-
-
 def drift_figure(X: pd.DataFrame, meta: pd.DataFrame, sensors: list[str], boundary_ts, path: Path) -> None:
     """Small multiples: weekly median with 10 to 90 percentile band."""
     n = len(sensors)
@@ -645,4 +616,110 @@ def walk_forward_figure(wf: pd.DataFrame, path: Path) -> None:
         ncol=2,
         bbox_to_anchor=(1, 1.2),
     )
+    save(fig, path)
+
+
+# ----------------------------------------------------------------------
+# Change point, shift and monitoring burden
+# ----------------------------------------------------------------------
+def changepoint_figure(profile: pd.Series, timestamps: pd.Series, cp_index: int, secondary: list[int], path: Path) -> None:
+    """Change-point statistic against the candidate boundary date."""
+    t = timestamps.iloc[profile.index]
+    fig, ax = plt.subplots(figsize=(WIDE, 3.2))
+    ax.plot(t, profile.to_numpy() / profile.max(), color=BLUE, lw=1.6, marker="o", ms=2.5)
+    ax.axvline(timestamps.iloc[cp_index], color=CRIT, lw=1.2)
+    ax.text(timestamps.iloc[cp_index], 0.04, f" {timestamps.iloc[cp_index]:%d %b}", color=CRIT, fontsize=8.5, va="bottom",
+            transform=ax.get_xaxis_transform())
+    for k in secondary:
+        ax.axvline(timestamps.iloc[k], color=MUTED, lw=1, ls=(0, (4, 3)))
+        ax.text(timestamps.iloc[k], 0.04, f" {timestamps.iloc[k]:%d %b}", color=MUTED, fontsize=8.5, va="bottom",
+                transform=ax.get_xaxis_transform())
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("statistic (scaled to max)")
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO, interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    _title(ax, "Where did the process change?",
+           "mean-shift statistic for a boundary at the start of each day (all sensors, pass/fail labels not used); "
+           "red = estimate, dashed = secondary")
+    save(fig, path)
+
+
+def shift_spread_figure(ss: pd.DataFrame, n_label: int, path: Path) -> None:
+    """Median shift against spread ratio for every sensor (no spec limits)."""
+    from matplotlib.patches import Rectangle
+
+    d = ss.dropna(subset=["shift_robust_sd", "spread_ratio"])
+    xlim, ylim = (-12, 12), (1 / 12, 12)
+    x = d.shift_robust_sd.clip(*xlim)
+    y = d.spread_ratio.clip(*ylim)
+    off = ((x != d.shift_robust_sd) | (y != d.spread_ratio)).to_numpy()
+    fig, ax = plt.subplots(figsize=(7.2, 5.6))
+    ax.add_patch(Rectangle((-1, 1 / 1.5), 2, 1.5 - 1 / 1.5, color=PHASE_BG, lw=0, zorder=0))
+    ax.axvline(0, color=AXIS, lw=1)
+    ax.axhline(1, color=AXIS, lw=1)
+    big = (d.ks_stat >= 0.3).to_numpy()
+    ax.scatter(x[~big & ~off], y[~big & ~off], s=12, color=BLUE_LIGHT, lw=0, label="KS < 0.3")
+    ax.scatter(x[big & ~off], y[big & ~off], s=16, color=BLUE, lw=0, label="KS \u2265 0.3")
+    ax.scatter(x[off], y[off], s=20, color=ORANGE, marker="s", lw=0, clip_on=False, zorder=4, label="off scale (drawn at edge)")
+    # label the largest movers; off-scale ones are listed in a corner note
+    top = d.sort_values("ks_stat", ascending=False).head(n_label)
+    off_names = [s_ for s_ in top.index if off[d.index.get_loc(s_)]]
+    for s_ in top.index.difference(off_names):
+        right = x[s_] > 0
+        ax.annotate(s_, (x[s_], y[s_]), xytext=(-6 if right else 6, -10), textcoords="offset points",
+                    fontsize=7.5, color=INK2, ha="right" if right else "left")
+    if off_names:
+        ax.text(0.98, 0.97, "off scale: " + ", ".join(sorted(off_names)), transform=ax.transAxes,
+                ha="right", va="top", fontsize=7.5, color=ORANGE)
+    ax.set_xscale("symlog", linthresh=1)
+    ax.set_yscale("log")
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.set_xlabel("median shift, in Phase I robust SDs (symmetric log scale)")
+    ax.set_ylabel("spread ratio, Phase II / Phase I")
+    _title(ax, "How far each sensor moved", "Phase II against Phase I; shaded box: |shift| < 1 SD and spread within 1.5x; "
+           f"labelled: top {n_label} by KS")
+    ax.legend(loc="lower left")
+    save(fig, path)
+
+
+def monitoring_figure(daily: pd.DataFrame, names: dict[str, str], cp_date, rebase_end_date, path: Path) -> None:
+    """Alarms per day for each monitor, with the daily fail count beneath.
+
+    Each monitor is drawn only where it is a genuine forward-looking
+    monitor: the re-baselined one after its window, the rolling one once
+    its first window is full.
+    """
+    colors = [MUTED, BLUE, ORANGE]
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(WIDE, 5.2), sharex=True, gridspec_kw={"height_ratios": [2, 1], "hspace": 0.35})
+    start = daily.date.min() - pd.Timedelta(days=1)
+    for ax in (a1, a2):
+        ax.axvspan(start, cp_date, color=PHASE_BG, lw=0, zorder=0)
+        ax.axvspan(cp_date, rebase_end_date, color="#e6f0fd", lw=0, zorder=0)
+    for (col, label), c in zip(names.items(), colors):
+        if col == "alarms_rolling":
+            v = daily[col].where(daily.covered)
+        elif col == "alarms_rebaselined":
+            v = daily[col].where(daily.date > rebase_end_date)
+        else:
+            v = daily[col]
+        a1.plot(daily.date, v, color=c, lw=1.4, marker="o", ms=2.2, label=label)
+    a1.set_yscale("symlog", linthresh=1)
+    a1.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    a1.set_ylim(0, None)
+    a1.set_ylabel("alarms per day")
+    _title(a1, "Alarm burden of three monitors",
+           "T\u00b2 or SPE beyond the empirical 99% limit; gray = Phase I, light blue = re-baselining window")
+    a1.legend(loc="upper right", ncol=3, bbox_to_anchor=(1, 1.25))
+    hf = daily.high_fail_day.fillna(False).to_numpy()
+    a2.bar(daily.date[~hf], daily.fails[~hf], color=BLUE_LIGHT, width=0.8, label="other days")
+    a2.bar(daily.date[hf], daily.fails[hf], color=ORANGE, width=0.8, label="high-fail day")
+    a2.set_ylabel("failed runs")
+    a2.legend(loc="upper right", ncol=2, bbox_to_anchor=(1, 1.35))
+    _title(a2, "Failed runs per day")
+    a2.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO, interval=2))
+    a2.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    a2.set_xlim(start, daily.date.max() + pd.Timedelta(days=1))
     save(fig, path)

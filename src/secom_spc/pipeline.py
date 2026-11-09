@@ -23,8 +23,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
 
-from . import capability, drift, features, modeling, multivariate, plots, spc
+from . import capability, changepoint, drift, features, modeling, monitoring, multivariate, plots, spc
 from .config import CFG, EXPORT_DIR, FIG_DIR, TABLE_DIR, Config, ensure_dirs
 from .data import load, phase_split
 from .preprocess import SensorScreen, missingness_profile
@@ -41,10 +42,12 @@ class Context:
     X: pd.DataFrame            # raw sensor matrix
     meta: pd.DataFrame         # run_id, timestamp, fail, date
     y: np.ndarray              # 1 = fail
-    phase1: np.ndarray         # first ``phase1_frac`` of runs in time
+    phase1: np.ndarray         # runs before the process change (or first ``phase1_frac``)
     ref: np.ndarray            # runs used to estimate control limits
     train: np.ndarray          # first ``1 - test_frac`` of runs in time
     week: np.ndarray           # ISO week label per run
+    rebase: np.ndarray         # passing runs used to re-baseline after the change
+    monitor: np.ndarray        # runs after the re-baselining window
     summary: dict = field(default_factory=dict)
     # filled in by later stages
     Xr: pd.DataFrame | None = None   # screened, with missing values
@@ -74,15 +77,42 @@ def _pct(mask: np.ndarray, within: np.ndarray) -> float:
 # ----------------------------------------------------------------------
 def stage_data(cfg: Config, fast: bool) -> Context:
     d = load()
-    y = d.meta.fail.to_numpy()
+    m = d.meta
+    y = m.fail.to_numpy()
     n = len(y)
-    phase1, _ = phase_split(n, cfg.phase1_frac)
+
+    # Change point: estimated from all sensors without using the labels.
+    # Screening here is unsupervised and only serves the detection.
+    unsup = SensorScreen(cfg.max_missing_frac, cfg.min_unique, cfg.min_rel_std, corr_dedup_threshold=None)
+    cp = changepoint.detect(unsup.fit_transform(d.X, impute=False), m.date, m.timestamp)
+    plots.changepoint_figure(cp.profile, m.timestamp, cp.index, cp.secondary, FIG_DIR / "00_changepoint.png")
+    cp.profile.rename_axis("run_index").to_csv(TABLE_DIR / "changepoint_profile.csv")
+
+    if cfg.phase_boundary == "changepoint":
+        phase1 = np.arange(n) < cp.index
+    else:
+        phase1, _ = phase_split(n, cfg.phase1_frac)
     train, _ = phase_split(n, 1 - cfg.test_frac)
     ref = phase1 & (y == 0) if cfg.phase1_pass_only else phase1
-    week = d.meta.timestamp.dt.to_period("W").astype(str).to_numpy()
-    ctx = Context(cfg, fast, d.X, d.meta, y, phase1, ref, train, week)
+    week = m.timestamp.dt.to_period("W").astype(str).to_numpy()
 
-    m = d.meta
+    boundary = int(phase1.sum())
+    post_pass = np.flatnonzero(~phase1 & (y == 0))[: cfg.rebaseline_runs]
+    rebase = np.zeros(n, dtype=bool)
+    rebase[post_pass] = True
+    monitor = np.arange(n) > post_pass[-1]
+    ctx = Context(cfg, fast, d.X, m, y, phase1, ref, train, week, rebase, monitor)
+
+    ctx.summary["changepoint"] = {
+        "run_id": int(m.run_id[cp.index]),
+        "timestamp": str(cp.timestamp),
+        "secondary_run_ids": [int(m.run_id[k]) for k in cp.secondary],
+        "secondary_timestamps": [str(m.timestamp[k]) for k in cp.secondary],
+        "rebaseline_window_end": str(m.timestamp[post_pass[-1]]),
+        "monitor_runs": int(monitor.sum()),
+        "monitor_fails": int(y[monitor].sum()),
+        "monitor_days": int(m.date[monitor].nunique()),
+    }
     ctx.summary["data"] = {
         "runs": n,
         "sensors": d.X.shape[1],
@@ -93,9 +123,9 @@ def stage_data(cfg: Config, fast: bool) -> Context:
         "end": str(m.timestamp.max()),
         "production_days": int(m.date.nunique()),
         "missing_cells_pct": float(100 * d.X.isna().mean().mean()),
-        "phase1_runs": ctx.boundary,
+        "phase1_runs": boundary,
         "phase1_fails": int(y[phase1].sum()),
-        "phase1_end": str(m.timestamp[ctx.boundary - 1]),
+        "phase1_end": str(m.timestamp[boundary - 1]),
         "phase1_ref_pass_runs": int(ref.sum()),
         "train_runs": int(train.sum()),
         "test_runs": int(ctx.test.sum()),
@@ -103,7 +133,8 @@ def stage_data(cfg: Config, fast: bool) -> Context:
         "test_fails": int(y[ctx.test].sum()),
         "test_start": str(m.timestamp[int(train.sum())]),
     }
-    log.info("loaded %d runs x %d sensors, %d fails", n, d.X.shape[1], y.sum())
+    log.info("loaded %d runs x %d sensors, %d fails; change point at run %d (%s)",
+             n, d.X.shape[1], y.sum(), m.run_id[cp.index], cp.timestamp)
     return ctx
 
 
@@ -151,7 +182,7 @@ def stage_univariate_spc(ctx: Context) -> dict:
 
 
 def daily_kpis(meta: pd.DataFrame, phase1: np.ndarray, k: float = 3.0) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Daily yield with p and Laney p' limits, plus a weekly roll-up."""
+    """Daily line-test pass rate with p and Laney p' limits, plus a weekly roll-up."""
     m = meta.assign(phase1=phase1)
     daily = (
         m.groupby("date")
@@ -159,9 +190,9 @@ def daily_kpis(meta: pd.DataFrame, phase1: np.ndarray, k: float = 3.0) -> tuple[
         .reset_index()
     )
     daily["passes"] = daily.runs - daily.fails
-    daily["yield_pct"] = 100 * daily.passes / daily.runs
+    daily["pass_rate_pct"] = 100 * daily.passes / daily.runs
     roll = daily.set_index("date")[["runs", "passes"]].rolling("7D").sum()
-    daily["yield_7d"] = (100 * roll.passes / roll.runs).to_numpy()
+    daily["pass_rate_7d"] = (100 * roll.passes / roll.runs).to_numpy()
 
     base = daily.all_phase1.to_numpy()
     pch = spc.p_chart(daily.fails, daily.runs, base, k)
@@ -179,37 +210,38 @@ def daily_kpis(meta: pd.DataFrame, phase1: np.ndarray, k: float = 3.0) -> tuple[
         .rename(columns={"run_id": "runs", "fail": "fails"})
     )
     weekly = weekly[weekly.runs > 0].copy()
-    weekly["yield_pct"] = 100 * (1 - weekly.fails / weekly.runs)
+    weekly["pass_rate_pct"] = 100 * (1 - weekly.fails / weekly.runs)
     return daily, pch, weekly.reset_index().rename(columns={"timestamp": "week_start"})
 
 
-def stage_yield(ctx: Context) -> tuple[pd.DataFrame, pd.DataFrame]:
+def stage_pass_rate(ctx: Context) -> tuple[pd.DataFrame, pd.DataFrame]:
     daily, pch, weekly = daily_kpis(ctx.meta, ctx.phase1, ctx.cfg.sigma_limits)
-    daily.to_csv(TABLE_DIR / "daily_yield.csv", index=False)
-    weekly.to_csv(TABLE_DIR / "weekly_yield.csv", index=False)
-    plots.yield_figure(daily, pch, ctx.meta.date[ctx.boundary], FIG_DIR / "02_yield_p_chart.png")
+    daily.to_csv(TABLE_DIR / "daily_pass_rate.csv", index=False)
+    weekly.to_csv(TABLE_DIR / "weekly_pass_rate.csv", index=False)
+    plots.pass_rate_figure(daily, pch, ctx.meta.timestamp[ctx.boundary], FIG_DIR / "02_pass_rate_p_chart.png")
 
     y = ctx.y
     ctx.summary["kpi"] = {
-        "overall_yield_pct": float(100 * (1 - y.mean())),
-        "phase1_yield_pct": float(100 * (1 - y[ctx.phase1].mean())),
-        "phase2_yield_pct": float(100 * (1 - y[ctx.phase2].mean())),
+        "overall_pass_rate_pct": float(100 * (1 - y.mean())),
+        "phase1_pass_rate_pct": float(100 * (1 - y[ctx.phase1].mean())),
+        "phase2_pass_rate_pct": float(100 * (1 - y[ctx.phase2].mean())),
         "p_chart_pbar_pct": float(100 * pch.pbar.iloc[0]),
         "p_chart_days_ooc_high": int(daily.p_ooc_high.sum()),
         "laney_sigma_z": float(daily.attrs["laney_sigma_z"]),
         "laney_days_ooc_high": int(daily.laney_ooc_high.sum()),
         "ooc_days": [str(dt.date()) for dt in daily.date[daily.p_ooc_high]],
-        "worst_week": weekly.loc[weekly.yield_pct.idxmin()].astype(str).to_dict(),
+        "worst_week": weekly.loc[weekly.pass_rate_pct.idxmin()].astype(str).to_dict(),
     }
-    log.info("yield KPIs done")
+    log.info("pass-rate KPIs done")
     return daily, weekly
 
 
 def stage_capability(ctx: Context) -> pd.DataFrame:
+    # Proxy-spec capability is kept as a supporting table only: without
+    # engineering specification limits it is not a capability statement.
     cap = capability.capability_table(ctx.Xr, ctx.phase1, ctx.cfg.spec_k)
-    cap.to_csv(TABLE_DIR / "capability.csv")
-    plots.capability_figure(cap, FIG_DIR / "07_capability_drift.png")
-    ctx.summary["capability"] = {
+    cap.to_csv(TABLE_DIR / "capability_proxy_specs.csv")
+    ctx.summary["capability_proxy"] = {
         "sensors_evaluated": len(cap),
         "spec_k_proxy": ctx.cfg.spec_k,
         "median_Ppk_I": float(cap.Ppk_I.median()),
@@ -219,7 +251,7 @@ def stage_capability(ctx: Context) -> pd.DataFrame:
         "pct_normal_at_5pct": float(100 * cap.normal_at_5pct.mean()),
         "worst5": cap.head(5)[["Ppk_I", "Ppk_II", "mean_shift_sigma", "sd_ratio_II_I"]].round(3).to_dict("index"),
     }
-    log.info("capability done")
+    log.info("proxy capability table done")
     return cap
 
 
@@ -244,6 +276,9 @@ def stage_mspc(ctx: Context) -> multivariate.MSPCResult:
         "spe_alarm_rate_phase2_pct": _pct(spe_par, p2),
         "t2_alarm_rate_phase2_empirical_pct": _pct(t2_emp, p2),
         "spe_alarm_rate_phase2_empirical_pct": _pct(spe_emp, p2),
+        "phase1_alarm_rate_empirical_pct": _pct(any_emp, ctx.phase1),
+        "fail_rate_given_alarm_phase1_empirical_pct": _pct(y == 1, ctx.phase1 & any_emp),
+        "fail_rate_given_no_alarm_phase1_empirical_pct": _pct(y == 1, ctx.phase1 & ~any_emp),
         "fail_rate_given_alarm_phase2_empirical_pct": _pct(y == 1, p2 & any_emp),
         "fail_rate_given_no_alarm_phase2_empirical_pct": _pct(y == 1, p2 & ~any_emp),
     }
@@ -260,10 +295,11 @@ def stage_mspc(ctx: Context) -> multivariate.MSPCResult:
     return ms
 
 
-def stage_drift(ctx: Context) -> None:
+def stage_drift(ctx: Context, cap: pd.DataFrame) -> None:
     cfg, Xr, Xi = ctx.cfg, ctx.Xr, ctx.Xi
-    ks = drift.ks_drift(Xr, ctx.phase1, ctx.phase2)
-    ks.to_csv(TABLE_DIR / "drift_ks.csv")
+    ks = drift.shift_spread(Xr, ctx.phase1, ctx.phase2)
+    ks = ks.join(cap[["Ppk_I", "Ppk_II"]].add_prefix("proxy_"))
+    ks.to_csv(TABLE_DIR / "sensor_shift_spread.csv")
     adv_auc, adv_imp = drift.adversarial_validation(Xi, ctx.phase2.astype(int), seed=cfg.random_state)
     adv_imp.rename("adversarial_importance").to_csv(TABLE_DIR / "drift_adversarial_importance.csv")
     frozen = drift.frozen_sensors(Xr, pd.Series(ctx.week))
@@ -271,6 +307,7 @@ def stage_drift(ctx: Context) -> None:
 
     shown = list(dict.fromkeys([*adv_imp.index[:4], *ks.index[:4]]))[:6]
     plots.drift_figure(Xr, ctx.meta, shown, ctx.meta.timestamp[ctx.boundary], FIG_DIR / "11_drift_sensors.png")
+    plots.shift_spread_figure(ks, 8, FIG_DIR / "07_shift_spread.png")
 
     # Sensitivity: how much of the Phase II SPE alarm rate is explained by
     # the sensors that changed regime?
@@ -282,17 +319,30 @@ def stage_drift(ctx: Context) -> None:
         ("minus all sensors with KS p < 1e-6", list(ks.index[ks.ks_p < 1e-6])),
     ):
         Xs = Xi.drop(columns=[c for c in drop if c in Xi.columns])
-        m = multivariate.fit_mspc(Xs, ctx.ref, cfg.pca_var_explained, cfg.mspc_alpha)
+        m = multivariate.fit_mspc(Xs, ctx.ref, cfg.pca_var_explained, cfg.mspc_alpha, seed=cfg.random_state)
         t2a, spea = m.alarms(empirical=True)
         rows.append(
             {
+                "limits_from": "Phase I",
                 "sensor_set": label,
                 "n_sensors": Xs.shape[1],
                 "pcs": m.n_components,
-                "t2_alarm_phase2_pct": _pct(t2a, ctx.phase2),
-                "spe_alarm_phase2_pct": _pct(spea, ctx.phase2),
+                "t2_alarm_monitor_pct": _pct(t2a, ctx.monitor),
+                "spe_alarm_monitor_pct": _pct(spea, ctx.monitor),
             }
         )
+    m = multivariate.fit_mspc(Xi, ctx.rebase, cfg.pca_var_explained, cfg.mspc_alpha, seed=cfg.random_state)
+    t2a, spea = m.alarms(empirical=True)
+    rows.append(
+        {
+            "limits_from": "re-baselining window",
+            "sensor_set": "all retained sensors",
+            "n_sensors": Xi.shape[1],
+            "pcs": m.n_components,
+            "t2_alarm_monitor_pct": _pct(t2a, ctx.monitor),
+            "spe_alarm_monitor_pct": _pct(spea, ctx.monitor),
+        }
+    )
     sens = pd.DataFrame(rows)
     sens.to_csv(TABLE_DIR / "mspc_drift_sensitivity.csv", index=False)
 
@@ -300,7 +350,11 @@ def stage_drift(ctx: Context) -> None:
         "adversarial_auc_phase1_vs_phase2": adv_auc,
         "sensors_ks_p_below_1e-6": int((ks.ks_p < 1e-6).sum()),
         "sensors_ks_stat_above_0.5": int((ks.ks_stat > 0.5).sum()),
-        "top_ks": ks.head(8)[["ks_stat", "median_shift_in_early_sd", "sd_ratio_late_early"]].round(3).to_dict("index"),
+        "sensors_abs_shift_above_1sd": int((ks.shift_robust_sd.abs() > 1).sum()),
+        "sensors_spread_ratio_outside_1.5x": int(((ks.spread_ratio > 1.5) | (ks.spread_ratio < 1 / 1.5)).sum()),
+        "sensors_constant_in_phase1": int(ks.early_constant.sum()),
+        "sensors_evaluated": len(ks),
+        "top_ks": ks.head(8)[["ks_stat", "shift_robust_sd", "spread_ratio"]].round(3).to_dict("index"),
         "top_adversarial": adv_imp.head(8).round(4).to_dict(),
         "frozen_then_live": frozen.to_dict("index"),
         "mspc_sensitivity": sens.round(1).to_dict("records"),
@@ -308,7 +362,63 @@ def stage_drift(ctx: Context) -> None:
     log.info("drift done (adversarial AUC %.3f)", adv_auc)
 
 
-def stage_ranking(ctx: Context, spc_mat: dict, cap: pd.DataFrame) -> pd.DataFrame:
+def stage_monitoring(ctx: Context, daily_kpi: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Alarm burden and failure capture of frozen, re-baselined and rolling monitors."""
+    cfg, y, Xi, dates = ctx.cfg, ctx.y, ctx.Xi, ctx.meta.date
+    kw = dict(var_explained=cfg.pca_var_explained, alpha=cfg.mspc_alpha, seed=cfg.random_state)
+    frozen = monitoring.alarms_from(Xi, ctx.ref, **kw)
+    rebased = monitoring.alarms_from(Xi, ctx.rebase, **kw)
+    rolling, covered = monitoring.rolling_alarms(Xi, y, dates, cfg.rolling_window, **kw)
+    alarms = {"frozen": frozen, "rebaselined": rebased, "rolling": rolling}
+
+    labels = {
+        "frozen": "limits frozen from Phase I",
+        "rebaselined": f"re-baselined on {cfg.rebaseline_runs} passing runs after the change",
+        "rolling": f"rolling: refit daily on last {cfg.rolling_window} passing runs",
+    }
+    rows = []
+    for name, a in alarms.items():
+        rows.append({"monitor": labels[name], "period": "after re-baselining window", **monitoring.burden(a, y, dates, ctx.monitor)})
+    pre = covered & ctx.phase1
+    rows.append({"monitor": labels["rolling"], "period": "Phase I (from first full window)",
+                 **monitoring.burden(rolling, y, dates, pre)})
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / "monitor_burden.csv", index=False)
+
+    daily = monitoring.daily_alarm_table(alarms, y, dates, covered)
+    daily = daily.merge(daily_kpi[["date", "p_ooc_high", "laney_ooc_high"]], on="date", how="left")
+    p1_rate = float(y[ctx.phase1].mean())
+    daily["high_fail_day"] = monitoring.high_fail_days(daily, cfg.high_fail_min_count, cfg.high_fail_rate_multiple * p1_rate)
+    daily.to_csv(TABLE_DIR / "monitor_daily.csv", index=False)
+    plots.monitoring_figure(daily, {"alarms_frozen": "frozen", "alarms_rebaselined": "re-baselined", "alarms_rolling": "rolling"},
+                            ctx.meta.timestamp[ctx.boundary], ctx.meta.timestamp[np.flatnonzero(ctx.rebase)[-1]],
+                            FIG_DIR / "12_monitor_burden.png")
+
+    # Would the rolling monitor have flagged the high-fail days?
+    cov = daily[daily.covered]
+    hi = cov[cov.high_fail_day]
+    rest = cov[~cov.high_fail_day]
+    rho = spearmanr(cov.alarms_rolling / cov.runs, cov.fail_rate)
+    ctx.summary["monitoring"] = {
+        "burden": table.round(3).to_dict("records"),
+        "rolling_first_covered_day": str(cov.date.min().date()),
+        "rolling_days_covered": len(cov),
+        "high_fail_rule": f">= {cfg.high_fail_min_count} fails and fail rate >= {cfg.high_fail_rate_multiple} x Phase I rate "
+                          f"({100 * cfg.high_fail_rate_multiple * p1_rate:.1f}%)",
+        "high_fail_days": [
+            {"date": str(r.date.date()), "runs": int(r.runs), "fails": int(r.fails), "rolling_alarms": int(r.alarms_rolling)}
+            for r in hi.itertuples()
+        ],
+        "pct_high_fail_days_with_rolling_alarm": 100 * float((hi.alarms_rolling > 0).mean()) if len(hi) else None,
+        "pct_other_days_with_rolling_alarm": 100 * float((rest.alarms_rolling > 0).mean()),
+        "spearman_daily_alarm_rate_vs_fail_rate": float(rho.statistic),
+        "spearman_p": float(rho.pvalue),
+    }
+    log.info("monitoring comparison done")
+    return alarms
+
+
+def stage_ranking(ctx: Context, spc_mat: dict) -> pd.DataFrame:
     cfg, y, tr, te = ctx.cfg, ctx.y, ctx.train, ctx.test
     n_boot = 30 if ctx.fast else cfg.n_stability_boot
     rank = features.consensus_rank(ctx.Xr[tr], ctx.Xi[tr], y[tr], n_boot=n_boot, C=cfg.stability_C, seed=cfg.random_state)
@@ -316,7 +426,6 @@ def stage_ranking(ctx: Context, spc_mat: dict, cap: pd.DataFrame) -> pd.DataFram
     rank = (
         rank.join(lift[["n_alarms", "alarm_lift", "fisher_p"]])
         .join(spc_mat["summary"][["rule1_rate_phase2"]])
-        .join(cap[["Ppk_I", "Ppk_II"]])
     )
     # Out-of-sample checks: later time period, and within calendar week.
     rank["test_auc"] = features.univariate_tests(ctx.Xr[te], y[te]).auc
@@ -423,7 +532,7 @@ def stage_models(ctx: Context, n_r1: np.ndarray, ms: multivariate.MSPCResult) ->
 
     topk = modeling.topk_model_name(cfg.top_k_sensors)
     wf_models = [topk] if ctx.fast else [topk, modeling.MODEL_L1, modeling.MODEL_GB]
-    wf_kw = dict(start_frac=cfg.phase1_frac, block=cfg.walk_forward_block)
+    wf_kw = dict(start=ctx.boundary, block=cfg.walk_forward_block)
     wf, _ = modeling.walk_forward(Xr, y, cfg, models=wf_models, **wf_kw)
     wf_slide, _ = modeling.walk_forward(Xr, y, cfg, models=[topk], window=cfg.walk_forward_window, **wf_kw)
     sliding_label = f"retrained, sliding {cfg.walk_forward_window}-run window"
@@ -446,12 +555,12 @@ def stage_exports(
     ctx: Context,
     spc_mat: dict,
     ms: multivariate.MSPCResult,
+    alarms: dict[str, np.ndarray],
     scores: np.ndarray,
     daily: pd.DataFrame,
     weekly: pd.DataFrame,
     spc_long: pd.DataFrame,
     rank: pd.DataFrame,
-    cap: pd.DataFrame,
 ) -> None:
     t2_par, spe_par = ms.alarms(empirical=False)
     t2_emp, spe_emp = ms.alarms(empirical=True)
@@ -472,6 +581,10 @@ def stage_exports(
         t2_ucl_empirical=round(ms.t2_ucl_emp, 3),
         spe_q_ucl_empirical=round(ms.spe_ucl_emp, 3),
         multivariate_alarm_empirical=t2_emp | spe_emp,
+        monitor_period=np.select([ctx.phase1, ctx.rebase | ~ctx.monitor], ["Phase I", "re-baselining window"], "monitoring"),
+        alarm_frozen_limits=alarms["frozen"],
+        alarm_rebaselined=alarms["rebaselined"],
+        alarm_rolling=alarms["rolling"],
         predicted_fail_prob=np.round(scores, 4),
         pc1=ms.scores.PC1.round(4),
         pc2=ms.scores.PC2.round(4),
@@ -481,7 +594,7 @@ def stage_exports(
     weekly.to_csv(EXPORT_DIR / "weekly_kpi.csv", index=False)
     spc_long.to_csv(EXPORT_DIR / "spc_top_sensors_long.csv", index=False)
     rank.reset_index().to_csv(EXPORT_DIR / "sensor_ranking.csv", index=False)
-    cap.reset_index().to_csv(EXPORT_DIR / "capability.csv", index=False)
+    pd.read_csv(TABLE_DIR / "sensor_shift_spread.csv").to_csv(EXPORT_DIR / "sensor_shift_spread.csv", index=False)
     log.info("exports written")
 
 
@@ -505,14 +618,15 @@ def run(cfg: Config = CFG, fast: bool = False) -> dict:
     ctx = stage_data(cfg, fast)
     stage_screening(ctx)
     spc_mat = stage_univariate_spc(ctx)
-    daily, weekly = stage_yield(ctx)
+    daily, weekly = stage_pass_rate(ctx)
     cap = stage_capability(ctx)
     ms = stage_mspc(ctx)
-    stage_drift(ctx)
-    rank = stage_ranking(ctx, spc_mat, cap)
+    stage_drift(ctx, cap)
+    alarms = stage_monitoring(ctx, daily)
+    rank = stage_ranking(ctx, spc_mat)
     spc_long = stage_sensor_charts(ctx, rank)
     scores = stage_models(ctx, spc_mat["rule1"].sum(axis=1).to_numpy(), ms)
-    stage_exports(ctx, spc_mat, ms, scores, daily, weekly, spc_long, rank, cap)
+    stage_exports(ctx, spc_mat, ms, alarms, scores, daily, weekly, spc_long, rank)
 
     ctx.summary["runtime_s"] = round(time.time() - t0, 1)
     ctx.summary["config"] = cfg.as_dict()

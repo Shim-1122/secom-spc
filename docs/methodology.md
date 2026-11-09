@@ -4,26 +4,32 @@ This document explains every statistical step in the pipeline, the formulas used
 
 ## 0. Framing
 
-SECOM is a record of 1567 production runs from a semiconductor fab between July and October 2008. Each run has 590 anonymised sensor / process-measurement readings and a pass/fail result from in-house line testing. The donors' stated goal was feature selection: find the few signals that explain yield excursions.
+SECOM is a record of 1567 production runs from a semiconductor fab between July and October 2008. Each run has 590 anonymised in-line sensor and metrology readings and a pass/fail result from a downstream line test. The data identify no lot, wafer, tool or chamber, so commonality analysis (tracing failures to shared equipment) is not possible.
 
 Two questions drive this project:
 
-1. **Monitoring.** If an engineer had frozen a monitoring plan at some point in time, which runs and which sensors would it have flagged afterwards, and how would the line yield KPI have looked? This is classic statistical process control (SPC).
-2. **Diagnosis.** Which sensors separate failing runs from passing runs, and does that separation survive into a later time period?
+1. **Monitoring.** Given a control plan baselined on a known-good period, which runs and which sensors depart from it, how many alarms would an engineer have to triage, and when should the baseline be reset?
+2. **Diagnosis.** Which sensors separate failing from passing runs, and does that separation survive into a later period?
+
+The outcome is described throughout as the **line-test pass rate** (passing runs / all runs). It is not die-level yield.
 
 ## 1. Time is the primary axis
 
-Fab data is a time series. Every split in this project respects time order (`data.phase_split`):
+Every split respects time order.
 
-| Split | Runs | Purpose |
+**Phase boundary.** Fabs re-baseline control limits after a known event such as preventive maintenance, a recipe change or new instrumentation. SECOM records no events, so the boundary is estimated from the sensors without using the labels (`changepoint.py`). Each sensor is rank-transformed and standardised; for each candidate boundary $k$ at the start of a production day,
+
+$$S(k) = \sum_j \frac{k(n-k)}{n}\left(\bar z_{j,1:k} - \bar z_{j,k+1:n}\right)^2 ,$$
+
+and the boundary is $\arg\max_k S(k)$. The same search within each segment gives secondary change points.
+
+| Partition | Definition | Purpose |
 |---|---|---|
-| Phase I | first 50 % (784 runs, to 2008-09-11) | baseline: control limits, imputation medians, sensor screening, PCA model |
-| Phase I reference | passing runs within Phase I (717) | "known good" data the limits are fitted on |
-| Phase II | last 50 % (783 runs) | monitoring with frozen limits |
-| Model train | first 70 % (1097 runs, 78 fails) | feature ranking, model fitting, threshold choice |
-| Model test | last 30 % (470 runs, 26 fails) | untouched hold-out |
-
-Random shuffled splits are also reported, only to show how much they flatter a model (section 8).
+| Phase I | runs before the detected change | baseline: control limits (from its passing runs), imputation medians, sensor screening |
+| Re-baselining window | the first 250 passing runs after the change | refitting limits after the event |
+| Monitoring period | runs after the re-baselining window | comparison of limit strategies on common ground |
+| Model training | first 70 % of runs | sensor ranking, model fitting, threshold choice |
+| Model test | last 30 % of runs | untouched hold-out |
 
 ## 2. Sensor screening (`preprocess.SensorScreen`)
 
@@ -73,46 +79,53 @@ For the top-ranked sensors the export also carries:
 
 Both detect sustained small shifts (about 1 sigma) faster than a Shewhart chart; a unit test verifies this on synthetic data.
 
-## 4. Yield KPI (`pipeline.daily_kpis`)
+## 4. Line-test pass rate (`pipeline.daily_kpis`)
 
-* Daily yield = passing runs / runs that day; a 7-day rolling yield weights by run count.
+* Daily pass rate = passing runs / runs that day; the 7-day rolling rate weights by run count.
 * **p chart** of the daily fail fraction with variable limits $\bar p \pm 3\sqrt{\bar p(1-\bar p)/n_i}$, $\bar p$ from Phase I days.
 * **Laney p' chart** as a robustness check. Day-to-day fail rates in fabs are usually over-dispersed relative to the binomial model; Laney rescales the limits by $\sigma_z$, the moving-range sigma of the Phase I z scores. $\sigma_z > 1$ indicates over-dispersion.
 
-## 5. Process capability (`capability.py`)
+## 5. Shift and spread between periods (`drift.shift_spread`)
 
-SECOM has **no specification limits**, so true Cpk cannot be computed. The pipeline uses *proxy* limits:
+SECOM publishes no specification limits, so process capability (Cpk, Ppk) cannot be computed in the engineering sense. The change in each sensor is instead described relative to its own Phase I behaviour:
 
-$$ LSL, USL = \text{median}_{I} \mp 4\,\hat\sigma_{\text{robust}, I} $$
+* **median shift** $= (\tilde x_{II} - \tilde x_{I}) / \hat\sigma_{I}$, where $\hat\sigma = 1.4826 \times \text{MAD}$;
+* **spread ratio** $= \hat\sigma_{II} / \hat\sigma_{I}$;
+* the two-sample **Kolmogorov-Smirnov** statistic for the whole distribution.
 
-where $\hat\sigma_{\text{robust}} = 1.4826 \times \text{MAD}$. A normally distributed sensor that keeps behaving like its baseline would score Cpk about 1.33. The quantities reported:
-
-* Cp, Cpk with within sigma (MR-bar / d2), Pp, Ppk with overall SD
-* Percentile (Clements) Cpk, which uses the 0.135th, 50th and 99.865th percentiles and does not assume normality
-* D'Agostino-Pearson normality test per sensor
-* $\Delta$Ppk = Ppk(II) minus Ppk(I), mean shift in Phase I SDs, SD ratio
-
-Read the result as **capability drift** relative to each sensor's own baseline, not as product capability. Because most sensors are strongly non-normal and heavy tailed, the median Phase I Ppk sits near 1.0 rather than 1.33: the overall SD is inflated by tails that the MAD ignores. That gap is itself a finding about the data.
+`capability.py` still computes Cp, Cpk, Pp, Ppk and a percentile Cpk against proxy limits ($\tilde x_I \pm 4\hat\sigma_I$). These are written to `reports/tables/capability_proxy_specs.csv` as supporting material only and are not used in the report.
 
 ## 6. Multivariate SPC (`multivariate.py`)
 
-Charting 324 sensors one by one at 3 sigma would give, even for perfectly normal independent data, $1-(1-0.0027)^{324} \approx 58\%$ of in-control runs at least one false alarm. The standard remedy is PCA-based monitoring:
+Charting 321 sensors one by one at 3 sigma would give, even for perfectly normal independent data, $1-(1-0.0027)^{321} \approx 58\%$ of in-control runs at least one false alarm. The standard remedy is PCA-based monitoring:
 
 1. Standardise with Phase I reference means and SDs; winsorise z at $\pm 10$.
 2. Fit PCA on the reference runs; keep the smallest number of components explaining 80 % of variance.
 3. **Hotelling T²** $= \sum_a t_a^2/\lambda_a$ (distance inside the model plane). Phase II limit: $\frac{p(m+1)(m-1)}{m(m-p)}F_{\alpha}(p, m-p)$.
 4. **SPE / Q** $= \lVert z - \hat z\rVert^2$ (distance off the plane). Limit from Box's scaled chi-square approximation $g\chi^2_h$ with $g = \text{var}/(2\,\text{mean})$, $h = 2\,\text{mean}^2/\text{var}$ of reference SPE.
-5. Because the parametric limits assume multivariate normality, an **empirical** limit (99th percentile of the reference statistic) is reported alongside and used for the exported alarm flag.
-6. **Contribution plots** decompose SPE into per-sensor squared residuals, pointing an engineer at the sensors behind an alarm.
+5. Because the parametric limits assume multivariate normality, an **empirical** limit (99th percentile of the reference statistic) is reported alongside and used for all alarm rates.
+6. Reference runs are scored **out-of-fold** (5-fold): each is scored by a model fitted without it. Scoring a run with a model fitted on it understates its T² and SPE, which would bias the empirical limits low and make reference runs look systematically more normal than any other run.
+7. **Contribution plots** decompose SPE into per-sensor squared residuals, pointing an engineer at the sensors behind an alarm.
 
 ## 7. Drift diagnostics (`drift.py`)
 
-* **Kolmogorov-Smirnov** two-sample test per sensor, Phase I vs Phase II.
-* **Adversarial validation:** a random forest is trained to predict whether a run came from Phase I or Phase II. Cross-validated AUC near 0.5 means the periods look alike; near 1.0 means the process moved enough that a model fitted on one period should not be trusted on the other.
+* **Adversarial validation:** a random forest is trained to predict whether a run came from Phase I or Phase II. Cross-validated AUC near 0.5 means the periods look alike; near 1.0 means the process moved enough that limits or models fitted on one period should not be trusted on the other.
 * **Frozen-then-live detection:** sensors that report one repeated value for at least two whole weeks and then vary. That usually indicates a stale or held tag rather than a perfectly stable process, and it breaks any control limit fitted on the frozen stretch.
-* **MSPC sensitivity:** refit the PCA monitor after removing the drifting sensors to see how much of the Phase II alarm load they explain.
+* **MSPC sensitivity:** refit the PCA monitor without the drifting sensors, or on the re-baselining window, to see how much of the monitoring-period alarm rate each explains.
 
-## 8. Ranking failure drivers (`features.py`)
+## 8. Monitor operating characteristics (`monitoring.py`)
+
+Three ways of setting the T²/SPE limits are compared on the monitoring period:
+
+| Strategy | Limits fitted on |
+|---|---|
+| Frozen | Phase I passing runs, never updated |
+| Re-baselined | the 250 passing runs after the detected change, then frozen |
+| Rolling | the most recent 150 passing runs, refitted at the start of each day |
+
+For each: the share of runs in alarm, alarms and false alarms per production day, the share of failed runs flagged, and the fail rate among flagged and unflagged runs. The rolling monitor needs no change point, so it can also be evaluated in Phase I. A **high-fail day** is a day with at least three failures and a fail rate at least twice the Phase I rate; for those days the question is whether the rolling monitor raised any alarm.
+
+## 9. Ranking failure drivers (`features.py`)
 
 Fitted on the training period only. Five views, each converted to a rank:
 
@@ -133,7 +146,7 @@ Two out-of-sample checks guard against false discoveries:
 
 The **alarm lift** column links SPC to failure: the fail rate among runs where this sensor's I-chart fired, divided by the overall fail rate, with a one-sided Fisher exact test.
 
-## 9. Predicting failure (`modeling.py`)
+## 10. Predicting failure (`modeling.py`)
 
 Pipelines (imputation, scaling, clipping, the top-k filter) are refit inside every fold to avoid leakage.
 
@@ -150,13 +163,14 @@ Metrics are imbalance-aware: ROC AUC with a 1000-sample bootstrap CI, PR AUC (co
 Three evaluation designs are reported:
 
 1. **Temporal hold-out** (train first 70 %, test last 30 %): the headline number.
-2. **Walk-forward**: starting at the Phase I boundary, score each block of 100 runs with a model retrained on everything before it (and, separately, on a sliding 500-run window), versus a model trained once. This is how a yield model would actually be operated.
+2. **Walk-forward**: starting at the detected change, score each block of 100 runs with a model retrained on everything before it (and, separately, on a sliding 500-run window), versus a model trained once. This is how a failure-prediction model would actually be operated.
 3. **Shuffled stratified 10-fold CV** on all data: comparable to most published SECOM results, and optimistic because it trains on the future.
 
-## 10. Limitations
+## 11. Limitations
 
-* Sensor meaning, units and spec limits are unknown, so physical interpretation of any sensor is impossible and Cpk is a proxy.
-* 104 fails in total, only 26 in the hold-out and 37 in the walk-forward period. AUC confidence intervals are wide; differences of a few points between models are not meaningful.
+* Sensor meaning, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed.
+* No lot, wafer, tool or chamber identifiers are provided, so commonality analysis is not possible.
+* 104 fails in total, only 26 in the hold-out and 37 after the detected change. AUC confidence intervals are wide; differences of a few points between models are not meaningful.
 * Fail labels come from a downstream line test. Some failures will be caused by steps not represented in these 590 signals.
 * Control limits, run rules and multivariate statistics all assume independent runs. Autocorrelation in fab data makes some alarms more frequent than nominal; the empirical MSPC limits partly compensate.
 

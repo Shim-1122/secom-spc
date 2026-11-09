@@ -1,0 +1,5 @@
+monitor,period,runs,fails,days,alarm_rate_pct,alarms_per_day,false_alarms_per_day,fails_flagged_pct,fail_rate_given_alarm_pct,fail_rate_given_no_alarm_pct
+limits frozen from Phase I,after re-baselining window,572,28,27,69.75524475524476,14.777777777777779,14.148148148148149,60.71428571428571,4.260651629072681,6.358381502890173
+re-baselined on 250 passing runs after the change,after re-baselining window,572,28,27,1.3986013986013985,0.2962962962962963,0.2962962962962963,0.0,0.0,4.964539007092199
+rolling: refit daily on last 150 passing runs,after re-baselining window,572,28,27,4.020979020979021,0.8518518518518519,0.8148148148148148,3.571428571428571,4.3478260869565215,4.918032786885246
+rolling: refit daily on last 150 passing runs,Phase I (from first full window),558,43,25,3.225806451612903,0.72,0.64,4.651162790697675,11.11111111111111,7.592592592592593

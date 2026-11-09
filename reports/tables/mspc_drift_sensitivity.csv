@@ -1,5 +1,6 @@
-sensor_set,n_sensors,pcs,t2_alarm_phase2_pct,spe_alarm_phase2_pct
-all retained sensors,324,85,0.8939974457215836,83.5249042145594
-minus frozen-then-live sensors,318,84,0.6385696040868455,31.673052362707537
-minus top 20 KS-drift sensors,304,82,0.8939974457215836,18.51851851851852
-minus all sensors with KS p < 1e-6,156,56,1.277139208173691,7.918263090676884
+limits_from,sensor_set,n_sensors,pcs,t2_alarm_monitor_pct,spe_alarm_monitor_pct
+Phase I,all retained sensors,321,84,3.8461538461538463,69.58041958041959
+Phase I,minus frozen-then-live sensors,314,83,2.097902097902098,2.272727272727273
+Phase I,minus top 20 KS-drift sensors,301,81,1.048951048951049,2.272727272727273
+Phase I,minus all sensors with KS p < 1e-6,152,55,1.048951048951049,1.9230769230769231
+re-baselining window,all retained sensors,321,66,0.6993006993006993,1.2237762237762237
