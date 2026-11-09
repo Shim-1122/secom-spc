@@ -159,11 +159,16 @@ def yield_figure(daily: pd.DataFrame, pch: pd.DataFrame, boundary_date, path: Pa
     save(fig, path)
 
 
-def mspc_figure(t2, spe, t2_ucl, spe_ucl, boundary, fails, t2_emp, spe_emp, path: Path) -> None:
-    x = np.arange(1, len(t2) + 1)
+def mspc_figure(ms, boundary: int, fails: np.ndarray, path: Path) -> None:
+    """T^2 and SPE charts (log scale) with parametric and empirical limits."""
+    x = np.arange(1, len(ms.t2) + 1)
     fig, axes = plt.subplots(2, 1, figsize=(11, 5.5), sharex=True)
-    for ax, v, u, ue, name in ((axes[0], t2, t2_ucl, t2_emp, "Hotelling T²"), (axes[1], spe, spe_ucl, spe_emp, "SPE (Q)")):
-        ok = v <= u
+    panels = (
+        (axes[0], ms.t2, ms.t2_ucl, ms.t2_ucl_emp, "Hotelling T\u00b2"),
+        (axes[1], ms.spe, ms.spe_ucl, ms.spe_ucl_emp, "SPE (Q)"),
+    )
+    for ax, v, u, ue, name in panels:
+        ok = v <= ue
         ax.scatter(x[ok & (fails == 0)], v[ok & (fails == 0)], s=6, color=BLUE, label="pass run")
         ax.scatter(x[ok & (fails == 1)], v[ok & (fails == 1)], s=14, color=ORANGE, marker="D", label="fail run")
         ax.scatter(x[~ok & (fails == 0)], v[~ok & (fails == 0)], s=18, color=CRIT, marker="x", lw=1.1, label="alarm, pass run")
@@ -172,7 +177,7 @@ def mspc_figure(t2, spe, t2_ucl, spe_ucl, boundary, fails, t2_emp, spe_emp, path
         ax.axhline(ue, color=INK2, ls="-.", lw=1)
         ax.set_yscale("log")
         ax.set_ylabel(f"{name} (log)")
-        ax.set_title(f"{name} chart   (dashed: parametric 99% limit {u:.0f}, dash-dot: empirical 99th pct of baseline {ue:.0f})")
+        ax.set_title(f"{name}   (dashed: parametric 99% limit {u:.0f}; dash-dot: empirical 99th percentile of baseline {ue:.0f})")
         ax.axvline(boundary + 0.5, color=INK2, ls=":", lw=1)
     axes[0].legend(loc="upper left", ncol=4)
     axes[1].set_xlabel("run (time order)")

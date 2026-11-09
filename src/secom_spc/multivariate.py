@@ -38,8 +38,13 @@ class MSPCResult:
     loadings: pd.DataFrame
     t2_contrib: pd.DataFrame
     spe_contrib: pd.DataFrame
-    t2_ucl_emp: float = np.nan
-    spe_ucl_emp: float = np.nan
+    t2_ucl_emp: float
+    spe_ucl_emp: float
+
+    def alarms(self, empirical: bool = True) -> tuple[np.ndarray, np.ndarray]:
+        """Boolean T^2 and SPE alarm arrays under the chosen limits."""
+        t2_lim, spe_lim = (self.t2_ucl_emp, self.spe_ucl_emp) if empirical else (self.t2_ucl, self.spe_ucl)
+        return self.t2 > t2_lim, self.spe > spe_lim
 
 
 def t2_ucl_phase2(p: int, m: int, alpha: float) -> float:

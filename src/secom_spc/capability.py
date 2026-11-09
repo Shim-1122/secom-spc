@@ -62,24 +62,6 @@ def capability_indices(x: np.ndarray, lsl: float, usl: float) -> dict:
     return out
 
 
-def bootstrap_cpk_ci(x: np.ndarray, lsl: float, usl: float, n_boot: int = 500, alpha: float = 0.05, seed: int = 0):
-    """Percentile bootstrap CI for Ppk (overall sigma)."""
-    rng = np.random.default_rng(seed)
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size < 10:
-        return np.nan, np.nan
-    vals = []
-    for _ in range(n_boot):
-        b = rng.choice(x, x.size, replace=True)
-        s = b.std(ddof=1)
-        if s > 0:
-            vals.append(min(usl - b.mean(), b.mean() - lsl) / (3 * s))
-    if not vals:
-        return np.nan, np.nan
-    return tuple(np.percentile(vals, [100 * alpha / 2, 100 * (1 - alpha / 2)]))
-
-
 def capability_table(
     X: pd.DataFrame, phase1: np.ndarray, spec_k: float = 4.0, sensors: list[str] | None = None
 ) -> pd.DataFrame:

@@ -1,386 +1,278 @@
-# SECOM: Statistical Process Control and Failure Analytics for a Semiconductor Fab
+# Statistical Process Control and Failure Analysis of the UCI SECOM Semiconductor Dataset
 
 [![CI](https://github.com/Shim-1122/secom-spc/actions/workflows/ci.yml/badge.svg)](https://github.com/Shim-1122/secom-spc/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Data: CC BY 4.0](https://img.shields.io/badge/data-CC%20BY%204.0-lightgrey)
 
-An end-to-end SPC and yield analytics study on **real fab sensor data**: 1567 wafer production runs, 590 process sensors, and a pass/fail line-test result for each run (UCI SECOM dataset, July to October 2008).
+Shyam Iyer, Rutgers University
 
-The project builds what a process or yield engineer would build around a line like this:
+## Abstract
 
-* **Univariate SPC**: I-MR and X-bar/S control charts with Phase I / Phase II limits, all eight Nelson run rules, EWMA and CUSUM
-* **Yield KPI monitoring**: daily yield, 7-day rolling yield, p chart and Laney p' chart of the fail rate
-* **Process capability**: Cp, Cpk, Pp, Ppk and a non-normal (percentile) Cpk, tracked as capability drift
-* **Multivariate SPC**: PCA-based Hotelling T² and SPE (Q) charts with contribution plots
-* **Drift diagnostics**: KS tests, adversarial validation, and detection of sensors that were frozen and then came alive
-* **Failure-driver ranking**: five statistical and ML views combined into a consensus, then stress-tested out of time and within week
-* **Failure prediction**: leakage-safe pipelines evaluated on a temporal hold-out, walk-forward retraining, and shuffled CV for comparison
-* **Dashboard exports**: tidy CSVs plus a build guide for a **Spotfire** dashboard and a **JMP JSL** script
+SECOM records 590 in-line sensor and metrology signals for 1567 production runs of a semiconductor fab between July and October 2008. Each run has a pass/fail outcome from a downstream line test. This repository applies univariate and multivariate statistical process control (SPC) to the data and asks which sensors are associated with failure. Control limits, sensor screening and models are fitted only on earlier runs and evaluated on later ones.
 
-Everything is reproducible with one command, covered by 34 unit tests, and every number below is read from `reports/summary.json` produced by the pipeline.
-
----
+The dominant feature of the data is a process change between the first and second halves of the record. A classifier separates the two halves with a cross-validated AUC of 0.999, 168 of 324 retained sensors shift (Kolmogorov-Smirnov p < 1e-6), and three sensors report a constant value from the start of the record until early September. Line yield rose from 91.5 % to 95.3 % across the same boundary. A PCA-based squared prediction error (SPE) chart detects the change immediately, and contribution analysis attributes it to the sensors that changed regime. Several sensors separate failing from passing runs in the training period, but most of this association does not survive a test on later runs or a comparison restricted to runs from the same week. Classifiers that reach ROC AUC 0.70 to 0.77 under shuffled cross-validation, the protocol used in most published SECOM results, reach only 0.53 to 0.56 on a temporal hold-out.
 
 ## Contents
 
-1. [Key findings](#key-findings)
-2. [The data](#the-data)
-3. [Results in detail](#results-in-detail)
-4. [Quick start](#quick-start)
-5. [Repository layout](#repository-layout)
-6. [Outputs](#outputs)
-7. [Design decisions](#design-decisions)
-8. [Limitations](#limitations)
-9. [References and citation](#references-and-citation)
+1. [Introduction](#1-introduction)
+2. [Data](#2-data)
+3. [Methods](#3-methods)
+4. [Results](#4-results)
+5. [Discussion](#5-discussion)
+6. [Limitations](#6-limitations)
+7. [Reproducing the analysis](#7-reproducing-the-analysis)
+8. [References](#references)
 
----
+## 1. Introduction
 
-## Key findings
+A semiconductor line generates far more process measurements than an engineer can inspect, and only a small fraction of runs fail. Two questions follow. The monitoring question asks which runs, and which sensors, departed from a reference period. The diagnostic question asks which sensors carry information about failure. SECOM, donated to the UCI Machine Learning Repository by McCann and Johnston (2008), is one of the few public datasets that allows both questions to be studied on production data.
 
-1. **The process changed between the first and second half of the data, and that dominates everything else.** A classifier can tell a Phase I run from a Phase II run with **AUC 0.999**. 168 of 324 sensors shift with KS p < 1e-6. Three sensors (S542, S543, S544) reported one frozen value for weeks and only started varying in early September, a pattern that usually means a stale tag or a sensor brought online, not a perfectly stable process.
+Most published work on SECOM treats it as a static feature-selection or classification benchmark and evaluates with shuffled cross-validation. The runs are time-stamped, however, and fab processes are not stationary. This project therefore treats time as the primary axis. Phase I (the first half of the record) is used to fit control limits and models; Phase II (the second half) is monitored with those limits frozen, as it would be in a fab. The same principle governs the predictive analysis.
 
-2. **Per-sensor 3-sigma charts do not scale to 324 sensors.** Every single run trips at least one I-chart (median 23 sensors in alarm per run). Most sensors are heavy tailed: only 1.2 % pass a normality test. Multivariate SPC is the right tool, but it has to be built on clean baselines.
+## 2. Data
 
-3. **Multivariate SPC finds the drift, and contribution analysis points straight at it.** With empirical limits, Hotelling T² alarms on 0.9 % of Phase II runs (nominal 1 %), but SPE alarms on **83.5 %**. Removing just the six frozen-then-live sensors cuts that to 31.7 %; removing the 20 most drifted sensors cuts it to 18.5 %. The SPE contribution plot for the worst failing Phase II run ranks S542 first.
+All figures below were obtained by loading the raw files; none are taken from the dataset description.
 
-4. **Yield improved from 91.5 % (Phase I) to 95.3 % (Phase II).** The p chart flags four early high-fail days, but day-to-day fail rates are over-dispersed (Laney sigma_z = 1.19), and after the Laney correction only one day remains out of control.
-
-5. **Most "failure-predictive" sensors do not survive an honest test.** The top-ranked sensor in training, S059, has AUC 0.76 but **0.47 on the later hold-out**: its level and spread collapsed around run 480 as yield improved. Only a handful of sensors keep the same direction across all three checks (training AUC, within-week AUC, hold-out AUC), led by **S021, S247 and S033**, which are also over-represented in SPC alarms on failing runs (alarm lift 3.1x and 2.4x for S021 and S247, Fisher p < 0.01).
-
-6. **Shuffled cross-validation badly overstates what is predictable.** Models reach ROC AUC 0.70 to 0.77 under the shuffled 10-fold CV used in most SECOM write-ups, but only **0.53 to 0.56 on the final 30 % of runs**, with confidence intervals that include 0.5. Walk-forward retraining recovers some signal (L1 logistic 0.50 to 0.61), which is the realistic deployment pattern for a drifting line.
-
-The practical lesson matches how fabs actually operate: **re-baseline control limits after a known process change, quarantine sensors whose data quality changed, and retrain yield models on a schedule** rather than trusting a model fitted months earlier.
-
----
-
-## The data
-
-| | |
+| Property | Value |
 |---|---|
-| Source | UCI Machine Learning Repository, SECOM (McCann & Johnston, 2008), CC BY 4.0 |
-| Runs | 1567 production entities, one row each |
-| Sensors | 590 anonymised signals (UCI lists 591 attributes including the label) |
-| Labels | 104 fails (6.64 %), 1463 passes, from in-house line testing |
-| Time span | 2008-07-19 11:55 to 2008-10-17 06:07, 86 production days, chronological |
-| Missing | 4.54 % of sensor cells |
-| Specs and units | none published |
+| Runs | 1567 (one row per production entity) |
+| Sensors | 590 anonymised signals. UCI lists 591 attributes; the extra one is the label. |
+| Outcome | 104 fails (6.64 %), 1463 passes |
+| Period | 2008-07-19 11:55 to 2008-10-17 06:07, 86 production days, stored in time order |
+| Missing values | 4.54 % of sensor cells |
+| Units, sensor names, specification limits | not published |
 
-Screening, fitted on Phase I only:
+Sensors were screened using Phase I data only. Twenty-four were missing in more than half of the runs, 122 were constant or nearly constant, and 120 were near-duplicates of an earlier sensor (absolute Pearson correlation above 0.98). The remaining 324 sensors are used throughout.
 
-| Stage | Sensors |
-|---|---|
-| Input | 590 |
-| Dropped: missing in > 50 % of runs | 24 |
-| Dropped: constant or near-constant | 122 |
-| Dropped: near-duplicate of a kept sensor (abs r > 0.98) | 120 |
-| **Retained** | **324** |
+Table 1. Time-based partitions.
 
-<p align="center"><img src="reports/figures/01_missingness.png" width="70%"></p>
-
----
-
-## Results in detail
-
-### Time splits
-
-| Split | Runs | Fails | Used for |
+| Partition | Runs | Fails | Role |
 |---|---|---|---|
-| Phase I (first 50 %, to 2008-09-11) | 784 | 67 | control limits (717 passing runs), screening, imputation, PCA |
-| Phase II | 783 | 37 | monitoring with frozen limits |
-| Train (first 70 %) | 1097 | 78 | feature ranking, models, thresholds |
-| Test (last 30 %, from 2008-09-26) | 470 | 26 | untouched hold-out |
+| Phase I (to 2008-09-11) | 784 | 67 | Control limits (from its 717 passing runs), screening, imputation, PCA model |
+| Phase II | 783 | 37 | Monitoring with frozen limits |
+| Training (first 70 %) | 1097 | 78 | Sensor ranking, model fitting, threshold selection |
+| Test (last 30 %, from 2008-09-26) | 470 | 26 | Hold-out evaluation |
 
-### 1. Yield KPI
+## 3. Methods
 
-<p align="center"><img src="reports/figures/02_yield_p_chart.png" width="100%"></p>
+Formulas, constants and references for every step are given in [docs/methodology.md](docs/methodology.md). The essentials are summarised here.
 
-| KPI | Value |
-|---|---|
-| Overall yield | 93.4 % |
-| Phase I yield | 91.5 % |
-| Phase II yield | 95.3 % |
-| Phase I p-bar (fail rate) | 8.6 % |
-| Days above the p-chart UCL | 4 (Jul 25, Jul 29, Aug 10, Aug 17) |
-| Laney sigma_z (over-dispersion) | 1.19 |
-| Days above the Laney p' UCL | 1 |
+**Univariate SPC.** Each sensor receives an individuals and moving-range (I-MR) chart. The centre line and within-run sigma (MR-bar / d2) are estimated from the passing runs of Phase I, after up to three rounds of removing points beyond 3 sigma. All eight Nelson run rules are evaluated. For the top-ranked sensors, X-bar/S charts on subgroups of five consecutive runs, an EWMA chart (lambda = 0.2, L = 2.86) and a tabular CUSUM (k = 0.5 sigma, h = 5 sigma) are also produced.
 
-The p-chart UCL is wide on low-volume days, which is why a 50 % fail day can still be in control. The Laney chart is the more defensible alarm when daily fail counts vary more than a binomial model allows.
+**Yield monitoring.** The daily fail fraction is plotted on a p chart with variable limits. Because daily fail counts are often more variable than a binomial model allows, a Laney p' chart is computed as well.
 
-### 2. Univariate control charts
+**Capability.** SECOM publishes no specification limits, so true Cpk cannot be computed. Each sensor is given proxy limits at its Phase I median plus or minus four robust standard deviations (1.4826 times the MAD). A stable, normally distributed sensor would then have Cpk near 1.33. Cp, Cpk, Pp, Ppk and a percentile-based Cpk that does not assume normality are reported for each phase. The quantity of interest is the change between phases, not the absolute value.
 
-Limits come from Phase I passing runs (with iterative removal of 3-sigma points) and are applied unchanged to Phase II. Orange circles mark Nelson rules 2 to 8, red crosses mark rule 1, black ticks mark failed runs.
+**Multivariate SPC.** Sensors are standardised with Phase I reference statistics and projected onto the principal components that explain 80 % of reference variance. Hotelling's T² measures variation within that subspace, and SPE (the Q statistic) measures variation outside it. Parametric 99 % limits (F distribution for T², Box's scaled chi-square approximation for SPE) are reported alongside empirical limits equal to the 99th percentile of the reference statistic. The empirical limits are used for all alarm rates in Section 4 unless stated otherwise. SPE contributions identify the sensors behind an alarm.
 
-<p align="center"><img src="reports/figures/08_imr_04_S247.png" width="100%"></p>
-<p align="center"><img src="reports/figures/08_imr_01_S059.png" width="100%"></p>
+**Drift diagnostics.** Each sensor's Phase I and Phase II distributions are compared with a two-sample Kolmogorov-Smirnov test. In adversarial validation, a random forest is trained to predict the phase of a run; a cross-validated AUC near 1 indicates that the two periods are easily distinguished. A sensor is flagged as "frozen, then live" if it reports a single value for at least two complete weeks and later varies. Finally, the multivariate monitor is refitted without the drifting sensors to measure how much of the Phase II alarm rate they explain.
 
-S059 shows a clear regime change around run 480: high, noisy values early (where many early fails sit) and a tight band afterwards. That is exactly why it looks predictive in training and fails out of time.
+**Ranking failure-related sensors.** Five criteria are computed on the training partition: the Mann-Whitney U test with Benjamini-Hochberg correction, univariate ROC AUC, mutual information, L1-logistic stability selection over 200 class-balanced half-samples, and Extra-Trees importance. The consensus rank orders sensors by their mean rank across the five criteria. Two further checks test whether an association is genuine. The first is the AUC on the later test partition. The second is a within-week AUC, which compares failing runs only with passing runs from the same calendar week and so removes associations produced by a shared time trend. An SPC-specific measure, alarm lift, gives the fail rate among runs in which a sensor's I chart signalled, divided by the overall fail rate.
 
-X-bar / S on subgroups of five consecutive runs:
+**Failure prediction.** Four classifiers are compared: an L1-penalised logistic regression on all sensors, a logistic regression on the 20 sensors with the highest univariate AUC (selected inside each cross-validation fold), a random forest and histogram gradient boosting. Preprocessing is refitted within every fold. Three model-free scores serve as baselines: the number of sensors beyond 3 sigma, T² and SPE. The decision threshold minimises the balanced error rate (BER) on out-of-fold training predictions and is then fixed. Performance is reported under three protocols: the temporal hold-out; walk-forward evaluation, in which each block of 100 Phase II runs is scored by a model retrained on all earlier runs; and shuffled stratified 10-fold cross-validation, included for comparison with the literature.
 
-<p align="center"><img src="reports/figures/09_xbar_s_01_S059.png" width="100%"></p>
+## 4. Results
 
-The alarm load problem:
+### 4.1 Yield
 
-<p align="center"><img src="reports/figures/05_alarm_load.png" width="100%"></p>
+Yield over the whole record is 93.4 %. It rises from 91.5 % in Phase I to 95.3 % in Phase II (Figure 1). Using the Phase I fail fraction of 8.6 % as the centre line, the p chart flags four days in July and August. The day-to-day variation exceeds the binomial expectation (Laney sigma_z = 1.19), and after the Laney correction one of the four days remains out of control.
 
-| Univariate SPC metric | Value |
-|---|---|
-| Median per-sensor rule 1 rate, Phase I | 2.8 % (nominal 0.27 %) |
-| Median per-sensor rule 1 rate, Phase II | 2.6 % |
-| Sensors with > 5 % rule 1 rate in Phase II | 110 of 324 |
-| Runs with at least one sensor beyond 3 sigma | 100 % |
-| Mean sensors in alarm, passing vs failing runs | 23.7 vs 25.4 |
+![Figure 1](reports/figures/02_yield_p_chart.png)
+*Figure 1. Daily and seven-day rolling yield (top) and p chart of the daily fail fraction with limits that vary with daily volume (bottom). The dotted line marks the end of Phase I.*
 
-Moving-range sigma underestimates the spread of heavy-tailed sensors, so individual alarm rates run about ten times nominal, and across hundreds of sensors every run alarms somewhere.
+### 4.2 Univariate control charts
 
-### 3. Process capability (proxy specs)
+Charting each sensor separately is not workable at this scale. With limits from Phase I, the median sensor exceeds 3 sigma on 2.9 % of Phase I runs and 2.4 % of Phase II runs, roughly ten times the nominal 0.27 %. Every run has at least one sensor beyond 3 sigma; the median is 23 sensors per run (Figure 2). Failing runs average 25.4 such sensors against 23.7 for passing runs. Two properties of the data explain the excess. Most sensors are heavy-tailed: only 1.2 % pass a D'Agostino-Pearson normality test at the 5 % level. The moving-range estimator also understates the spread of such sensors.
 
-There are no spec limits in SECOM, so each sensor gets proxy limits at its Phase I median +/- 4 robust sigma (a stable normal sensor would score about 1.33). The value is in the **change** from Phase I to Phase II.
+![Figure 2](reports/figures/05_alarm_load.png)
+*Figure 2. Number of sensors beyond their 3-sigma I-chart limits in each run.*
 
-<p align="center"><img src="reports/figures/07_capability_drift.png" width="70%"></p>
+Sensor S059, the top-ranked sensor in Section 4.6, illustrates a regime change within Phase I. Its readings are high and variable for the first 480 or so runs, where many of the early failures occur, and fall into a narrow band afterwards (Figure 3).
 
-| Capability metric | Value |
-|---|---|
-| Median Ppk, Phase I | 1.00 |
-| Median Ppk, Phase II | 0.95 |
-| Sensors with Ppk >= 1.33 in Phase II | 21.6 % |
-| Sensors with Ppk < 1.0 in Phase II | 52.5 % |
-| Sensors passing a normality test (5 %) | 1.2 % |
-| Largest degradation | S542: Ppk 1.31 to -0.10, mean shift 5.7 SD, spread x5.7 |
+![Figure 3](reports/figures/08_imr_01_S059.png)
+*Figure 3. I-MR chart for S059. Crosses mark points beyond 3 sigma, open circles mark other Nelson rule violations, and ticks along the bottom mark failed runs.*
 
-### 4. Multivariate SPC
+The corresponding X-bar/S chart and I-MR charts for the five next-ranked sensors are in [reports/figures](reports/figures).
 
-PCA on 324 standardised sensors needs **85 components** for 80 % of variance, which already says the sensors are only weakly correlated.
+### 4.3 Capability
 
-<p align="center"><img src="reports/figures/06_hotelling_t2_spe.png" width="100%"></p>
+Against the proxy limits, the median Ppk is 1.00 in Phase I and 0.95 in Phase II. A Phase I median below the nominal 1.33 is expected for heavy-tailed sensors, because the overall standard deviation includes the tails that the MAD excludes. In Phase II, 21.6 % of sensors have Ppk of at least 1.33 and 52.5 % have Ppk below 1.0. The largest degradation is in S542, whose Ppk falls from 1.31 to -0.10: its mean shifts by 5.7 Phase I standard deviations and its spread increases 5.7-fold (Figure 4).
 
-| Statistic | Parametric 99 % limit | Alarm rate, reference | Alarm rate, Phase II | Empirical 99 % limit | Alarm rate, Phase II |
-|---|---|---|---|---|---|
-| Hotelling T² | 137.8 | 8.5 % | 25.4 % | 271.4 | 0.9 % |
-| SPE (Q) | 111.3 | 2.6 % | 94.6 % | 136.4 | 83.5 % |
+![Figure 4](reports/figures/07_capability_drift.png)
+*Figure 4. Ppk in Phase II against Ppk in Phase I. Points below the diagonal lost capability relative to their own baseline.*
 
-The parametric T² limit assumes multivariate normality and alarms on 8.5 % of the very runs it was fitted on; the empirical limit fixes that. SPE explodes right at the Phase I / II boundary.
+### 4.4 Multivariate control charts
 
-**Which sensors cause it?** The SPE contribution plot for failing run 1152:
+Eighty-five principal components are needed to explain 80 % of the reference variance, so the sensors are only weakly correlated. The parametric T² limit assumes multivariate normality and is exceeded by 8.5 % of the reference runs themselves. Under the empirical limit, T² signals on 0.9 % of Phase II runs, close to the nominal 1 %. SPE behaves very differently: it signals on 83.5 % of Phase II runs, and the increase begins at the start of Phase II (Figure 5). Within Phase I the SPE chart is informative about failure: 15 of the 23 Phase I runs above the SPE limit failed (65 %), against a Phase I fail rate of 8.5 %.
 
-<p align="center"><img src="reports/figures/06b_spe_contribution.png" width="55%"></p>
+![Figure 5](reports/figures/06_hotelling_t2_spe.png)
+*Figure 5. Hotelling T² and SPE for every run, log scale. Alarms are judged against the empirical limit (dash-dot line).*
 
-**Sensitivity test**, refitting the monitor without the drifting sensors:
+The SPE contribution plot for the failing Phase II run with the largest SPE (run 1152) ranks S542 first (Figure 6). Refitting the monitor without the drifting sensors shows that a small number of them account for most of the Phase II alarms (Table 2).
 
-| Sensor set | Sensors | PCs | T² alarms, Phase II | SPE alarms, Phase II |
+![Figure 6](reports/figures/06b_spe_contribution.png)
+
+*Figure 6. Share of SPE contributed by each of the top eight sensors for run 1152.*
+
+Table 2. Phase II alarm rates after removing drifting sensors (empirical 99 % limits).
+
+| Sensors included | Number | PCs | T² alarms | SPE alarms |
 |---|---|---|---|---|
 | All retained | 324 | 85 | 0.9 % | 83.5 % |
-| Minus 6 frozen-then-live sensors | 318 | 84 | 0.6 % | 31.7 % |
-| Minus top 20 KS-drift sensors | 304 | 82 | 0.9 % | 18.5 % |
-| Minus all sensors with KS p < 1e-6 | 156 | 56 | 1.3 % | 7.9 % |
+| Excluding the six frozen-then-live sensors | 318 | 84 | 0.6 % | 31.7 % |
+| Excluding the 20 sensors with largest KS statistic | 304 | 82 | 0.9 % | 18.5 % |
+| Excluding all sensors with KS p < 1e-6 | 156 | 56 | 1.3 % | 7.9 % |
 
-### 5. Drift
+### 4.5 Process drift
 
-<p align="center"><img src="reports/figures/11_drift_sensors.png" width="100%"></p>
+The two phases are almost perfectly separable (adversarial-validation AUC 0.999), and 168 sensors differ between them at KS p < 1e-6. The largest KS statistics belong to S542 (0.74), S078 (0.74), S543 (0.72) and S544 (0.61). Six sensors fit the frozen-then-live pattern. S114, S249 and S521 begin to vary in the week of 18 August; S542, S543 and S544 begin in the week of 1 September, shortly before the Phase I boundary (Figure 7). A long run of identical readings usually indicates a held or stale value rather than an unusually stable process. Control limits fitted to such a stretch have no meaning once the sensor begins reporting.
 
-| Drift metric | Value |
-|---|---|
-| Adversarial validation AUC (Phase I vs II) | 0.999 |
-| Sensors with KS p < 1e-6 | 168 |
-| Largest KS statistics | S542 0.74, S078 0.74, S543 0.72, S544 0.61 |
-| Frozen-then-live sensors | S114, S249, S521 (live from week of Aug 18); S542, S543, S544 (live from week of Sep 1) |
+![Figure 7](reports/figures/11_drift_sensors.png)
+*Figure 7. Weekly median and 10th to 90th percentile band for the sensors that changed most between phases.*
 
-### 6. Which sensors predict failure?
+### 4.6 Sensors associated with failure
 
-Five views on the training period: Mann-Whitney U with Benjamini-Hochberg FDR, univariate AUC, mutual information, L1-logistic stability selection (200 bootstrap half-samples), and Extra-Trees importance. 17 sensors are significant at FDR 5 %, 24 at FDR 10 %.
+On the training partition, 17 sensors differ between failing and passing runs at a false discovery rate of 5 % (24 at 10 %). The five ranking criteria agree poorly: pairwise Spearman correlations between their rankings range from 0.10 to 0.98. Table 3 lists the highest-ranked sensors with the two out-of-sample checks. An AUC below 0.5 means the sensor reads lower in failing runs.
 
-<p align="center"><img src="reports/figures/03_sensor_ranking.png" width="75%"></p>
+Table 3. Top-ranked sensors and robustness checks.
 
-The methods disagree a lot (pairwise Spearman correlation between rankings from 0.10 to 0.98), which is why a consensus is used:
-
-<p align="center"><img src="reports/figures/03b_rank_agreement.png" width="60%"></p>
-
-**Robustness checks.** A sensor that merely trends with time looks predictive whenever the fail rate also trends. Within-week AUC compares fails only against passes from the same week:
-
-<p align="center"><img src="reports/figures/03c_time_confound.png" width="60%"></p>
-
-| Sensor | Consensus rank | Train AUC | Within-week AUC | Hold-out AUC | FDR q | SPC alarm lift | Verdict |
+| Sensor | Rank | Training AUC | Within-week AUC | Test AUC | FDR q | Alarm lift (Fisher p) | Assessment |
 |---|---|---|---|---|---|---|---|
-| S059 | 1 | 0.756 | 0.645 | **0.473** | < 0.001 | 2.1x | real in the early regime, gone after the process change |
-| S129 | 2 | 0.603 | 0.511 | 0.612 | 0.047 | 0.4x | mixed: fades within week, holds in hold-out |
-| S028 | 3 | 0.374 | 0.476 | 0.428 | 0.011 | 0.5x | mixed: weak within week, direction holds |
-| **S247** | 4 | 0.672 | 0.564 | 0.562 | < 0.001 | **2.4x** (p < 0.001) | holds on all checks |
-| **S033** | 5 | 0.615 | 0.564 | 0.584 | 0.021 | 1.6x | holds on all checks |
-| S122 | 6 | 0.395 | 0.462 | 0.443 | 0.046 | 1.2x | mixed: weak within week, direction holds |
-| **S021** | 8 | 0.613 | 0.619 | 0.580 | 0.024 | **3.1x** (p = 0.009) | strongest overall evidence |
-| S103 | 10 | 0.647 | 0.494 | 0.715 | 0.001 | 1.5x | mixed: no within-week signal, strong in hold-out |
+| S059 | 1 | 0.756 | 0.645 | 0.473 | < 0.001 | 2.1 (< 0.001) | Association confined to the early regime |
+| S129 | 2 | 0.603 | 0.511 | 0.612 | 0.047 | 0.4 (1.0) | No within-week association |
+| S028 | 3 | 0.374 | 0.476 | 0.428 | 0.011 | 0.5 (0.98) | Weak within week |
+| S247 | 4 | 0.672 | 0.564 | 0.562 | < 0.001 | 2.4 (< 0.001) | Consistent on all checks |
+| S033 | 5 | 0.615 | 0.564 | 0.584 | 0.021 | 1.6 (0.25) | Consistent on all checks |
+| S122 | 6 | 0.395 | 0.462 | 0.443 | 0.046 | 1.2 (0.04) | Weak within week |
+| S021 | 8 | 0.613 | 0.619 | 0.580 | 0.024 | 3.1 (0.009) | Consistent on all checks |
+| S103 | 10 | 0.647 | 0.494 | 0.715 | 0.001 | 1.5 (0.15) | No within-week association in training |
 
-(AUC below 0.5 means the sensor is lower in failing runs.) Pass vs fail distributions for the top nine:
+S059 is the clearest example of an association that does not transfer. Its training AUC of 0.76 falls to 0.47 on the test partition, because the regime in which it separated the classes ended (Figure 3). Only S021, S247 and S033 keep the same direction under every check, and S021 and S247 are also over-represented in I-chart alarms on failing runs. Figure 8 compares pooled and within-week AUC for the top 40 sensors.
 
-<p align="center"><img src="reports/figures/04_top_sensor_distributions.png" width="100%"></p>
+![Figure 8](reports/figures/03c_time_confound.png)
+*Figure 8. Training AUC against within-week AUC. Sensors near the dashed line retain their association within a week; sensors near 0.5 on the vertical axis owe their pooled AUC to a time trend.*
 
-### 7. Predicting failure
+The consensus ranking, the per-criterion ranks and pass/fail distributions of the top nine sensors are in [reports/figures](reports/figures) (files 03 to 04).
 
-Threshold chosen on out-of-fold training predictions (minimum balanced error rate), then frozen. Test set: 470 runs, 26 fails, base rate 5.5 %.
+### 4.7 Failure prediction
 
-| Model | Train CV AUC | Test ROC AUC [95 % CI] | Test PR AUC | Test BER | Fails caught | Specificity |
+Table 4 reports the temporal hold-out. The test partition contains 470 runs and 26 failures, a base rate of 5.5 %.
+
+Table 4. Temporal hold-out performance. Cross-validated AUC on the training partition is shown for reference.
+
+| Model | Training CV AUC | Test AUC (95 % CI) | Test PR AUC | Test BER | Recall | Specificity |
 |---|---|---|---|---|---|---|
-| L1 logistic, all sensors | 0.744 | 0.532 [0.42, 0.64] | 0.068 | 0.494 | 23 % | 78 % |
-| Logistic, top 20 by AUC (in-fold) | 0.661 | 0.563 [0.44, 0.68] | 0.097 | 0.423 | 35 % | 81 % |
-| Random forest | 0.773 | 0.536 [0.42, 0.65] | 0.064 | 0.503 | 4 % | 96 % |
-| Gradient boosting | 0.763 | 0.545 [0.44, 0.65] | 0.060 | 0.516 | 12 % | 85 % |
-| *SPC: # sensors beyond 3 sigma* | 0.562 | 0.650 [0.55, 0.75] | 0.083 | 0.399 | 88 % | 32 % |
-| *MSPC: Hotelling T²* | 0.458 | 0.454 [0.32, 0.59] | 0.062 | 0.541 | 62 % | 30 % |
-| *MSPC: SPE* | 0.674 | 0.481 [0.36, 0.60] | 0.057 | 0.500 | 100 % | 0 % |
+| L1 logistic, all sensors | 0.744 | 0.532 (0.42 to 0.64) | 0.068 | 0.494 | 0.23 | 0.78 |
+| Logistic, top 20 sensors | 0.661 | 0.563 (0.44 to 0.68) | 0.097 | 0.423 | 0.35 | 0.81 |
+| Random forest | 0.773 | 0.536 (0.42 to 0.65) | 0.064 | 0.503 | 0.04 | 0.96 |
+| Gradient boosting | 0.763 | 0.545 (0.44 to 0.65) | 0.060 | 0.516 | 0.12 | 0.85 |
+| Baseline: sensors beyond 3 sigma | 0.562 | 0.650 (0.55 to 0.75) | 0.083 | 0.399 | 0.88 | 0.32 |
+| Baseline: Hotelling T² | 0.458 | 0.454 (0.32 to 0.59) | 0.062 | 0.541 | 0.62 | 0.30 |
+| Baseline: SPE | 0.674 | 0.481 (0.36 to 0.60) | 0.057 | 0.500 | 1.00 | 0.00 |
 
-<p align="center"><img src="reports/figures/10_roc_pr_holdout.png" width="100%"></p>
+Every classifier loses most of its discrimination between training and test, and every test confidence interval includes 0.5. The count of sensors beyond 3 sigma is the only score whose interval excludes 0.5. Its training AUC is only 0.56, though, so this result may not be stable. SPE discriminates in training (0.67) but not in test, consistent with Section 4.4: after the process change nearly every run exceeds the SPE limit.
 
-Comparison with **shuffled** stratified 10-fold CV on all data (the setup most SECOM results use):
+![Figure 9](reports/figures/10_roc_pr_holdout.png)
+*Figure 9. ROC and precision-recall curves on the temporal hold-out.*
 
-| Model | Shuffled CV ROC AUC | Shuffled CV PR AUC | Temporal hold-out ROC AUC |
+Under shuffled 10-fold cross-validation the same classifiers reach ROC AUC 0.70 to 0.77 and PR AUC 0.14 to 0.19, with BER of 0.29 to 0.32 (optimistic, since the threshold is tuned on the same predictions). These figures are close to the baseline published with the dataset, in which a kernel ridge classifier on 40 selected sensors achieved BER between 33.5 % and 40.1 % under 10-fold cross-validation (McCann and Johnston, 2008). The gap between the two protocols is the main predictive result of this study.
+
+Walk-forward retraining recovers part of the signal for the linear models (Table 5, Figure 10). Over the 783 Phase II runs (37 failures), retraining every 100 runs raises the pooled AUC of the L1 logistic regression from 0.50 to 0.61 (0.52 to 0.70). Gradient boosting trained once on Phase I scores 0.64 (0.56 to 0.73) and does not improve with retraining.
+
+Table 5. Walk-forward evaluation over Phase II (pooled ROC AUC).
+
+| Model | Trained once | Retrained every 100 runs | Retrained on last 500 runs |
 |---|---|---|---|
-| L1 logistic | 0.732 | 0.169 | 0.532 |
-| Logistic, top 20 | 0.701 | 0.143 | 0.563 |
-| Random forest | 0.768 | 0.180 | 0.536 |
-| Gradient boosting | 0.734 | 0.192 | 0.545 |
+| Logistic, top 20 sensors | 0.453 | 0.556 | 0.519 |
+| L1 logistic, all sensors | 0.500 | 0.611 | |
+| Gradient boosting | 0.642 | 0.602 | |
 
-For reference, the donors' baseline reported balanced error rates of about 34 % at best with 10-fold CV. The shuffled numbers here (BER about 0.29 to 0.32, threshold tuned on the same predictions, so optimistic) are in that range; the temporal numbers are not.
+![Figure 10](reports/figures/10b_walk_forward.png)
+*Figure 10. Pooled walk-forward AUC for models trained once versus retrained before each block.*
 
-**Walk-forward retraining** (score each block of 100 Phase II runs with a model trained on everything before it; 783 runs, 37 fails):
+## 5. Discussion
 
-<p align="center"><img src="reports/figures/10b_walk_forward.png" width="75%"></p>
+The analysis is shaped by a process change near the Phase I/Phase II boundary. Several pieces of evidence point to it: the near-perfect adversarial-validation AUC, the onset of SPE alarms, the six frozen-then-live sensors, and a concurrent rise in yield. The data cannot say whether the change was a maintenance event, a recipe adjustment or new instrumentation coming online. Its practical consequences are clear, however. Limits and models fitted on Phase I describe a process that no longer exists in Phase II.
 
-| Model | Trained once | Retrained every block | Retrained, sliding 500-run window |
-|---|---|---|---|
-| Logistic, top 20 | 0.453 | 0.556 [0.45, 0.66] | 0.519 |
-| L1 logistic, all sensors | 0.500 | **0.611 [0.52, 0.70]** | |
-| Gradient boosting | 0.642 [0.56, 0.73] | 0.602 | |
+For monitoring, the results support standard practice. Per-sensor Shewhart charts generate an alarm on every run and are not usable alone at this dimensionality. A PCA-based monitor reduces the problem to two statistics, but its limits should be set empirically when the sensors are far from normal. Re-baselining is required after a known change, and sensors whose data quality changed should be removed beforehand. The contribution analysis identified the responsible sensors directly, which is the step that would lead an engineer to the cause.
 
-With 26 to 37 failures in each evaluation, intervals are wide. The defensible conclusion is that the label signal in these sensors is weak and non-stationary, and that retraining matters more than model choice for the linear models.
+For diagnosis, the results caution against reading a ranked list of "predictive" sensors at face value. Strong training-period associations, including the strongest one (S059), were explained by time: both the sensor and the fail rate changed over the record. Restricting comparisons to the same week, and testing on a later period, removed most of them. S021, S247 and S033 remain as candidates for engineering follow-up. With 104 failures in total, even these associations are modest.
 
----
+For prediction, shuffled cross-validation overstated achievable performance by roughly 0.2 AUC on this dataset. Evaluating on later data, and retraining on a schedule, gives a more realistic picture of how a yield model would perform in production.
 
-## Quick start
+## 6. Limitations
+
+Sensor identities and units are unknown, so no physical interpretation is possible and capability is computed against proxy limits. The data contain 104 failures, of which 26 fall in the test partition and 37 in the walk-forward period; confidence intervals are correspondingly wide, and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented in these signals. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The Phase I/II boundary is a fixed fraction of the record rather than a known process event. Finally, the Spotfire dashboard is specified in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md) but not included as a built file, and the JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) has not been executed in JMP as part of continuous integration.
+
+## 7. Reproducing the analysis
+
+Python 3.10 or later is required. The raw data are included in `data/raw/`.
 
 ```bash
 git clone https://github.com/Shim-1122/secom-spc.git
 cd secom-spc
 python -m pip install -e ".[dev]"
-
-python -m secom_spc.pipeline           # full run, about 8 minutes on a laptop
-python -m secom_spc.pipeline --fast    # about 2 minutes: fewer bootstraps, skips shuffled CV, 1 walk-forward model
-pytest -q                              # 34 unit tests
+python -m secom_spc.pipeline          # full analysis, about 8 minutes
+python -m secom_spc.pipeline --fast   # reduced bootstrap; no shuffled CV; about 2 minutes
+pytest                                # 35 unit tests
 ```
 
-The raw data is included in `data/raw/`. To re-download it from UCI: `python scripts/download_data.py --force`. A `Makefile` wraps the same commands (`make run`, `make fast`, `make test`).
+Every number in this document is written to `reports/summary.json` by the pipeline. All parameters (partition sizes, chart constants, proxy specification width, PCA variance target, model settings) are defined in [src/secom_spc/config.py](src/secom_spc/config.py). The UCI files can be re-downloaded with `python scripts/download_data.py --force`.
 
-All tunable settings (phase split, subgroup size, EWMA and CUSUM parameters, proxy spec width, PCA variance target, model hyperparameters) live in [`src/secom_spc/config.py`](src/secom_spc/config.py).
-
-Use the modules directly:
-
-```python
-from secom_spc.data import load, phase_split
-from secom_spc import spc
-
-d = load()
-p1, _ = phase_split(len(d), 0.5)
-ref = p1 & (d.y.values == 0)
-chart = spc.imr_chart(d.X["S247"].values, ref)
-chart[chart.phase == "II"].any_rule.mean()   # Phase II run-rule violation rate
-```
-
----
-
-## Repository layout
+### Repository structure
 
 ```text
-secom-spc/
-├── src/secom_spc/
-│   ├── config.py          all parameters in one dataclass
-│   ├── data.py            load and time-order the raw files, phase splits
-│   ├── preprocess.py      Phase I sensor screening, imputation, robust scale
-│   ├── spc.py             I-MR, X-bar/S, p, Laney p', EWMA, CUSUM, exact constants
-│   ├── rules.py           Nelson rules 1 to 8 (vectorised)
-│   ├── capability.py      Cp, Cpk, Pp, Ppk, percentile Cpk, bootstrap CI
-│   ├── multivariate.py    PCA Hotelling T² and SPE, limits, contributions
-│   ├── drift.py           KS drift, adversarial validation, frozen sensors, within-week AUC
-│   ├── features.py        five ranking methods, FDR, alarm lift, consensus
-│   ├── modeling.py        leakage-safe pipelines, temporal, walk-forward and shuffled CV
-│   ├── plots.py           report figures
-│   └── pipeline.py        end-to-end CLI
-├── tests/                 34 unit tests (constants, rules, capability, MSPC, leakage, confounding)
-├── data/raw/              SECOM files (CC BY 4.0)
-├── reports/
-│   ├── figures/           every chart in this README
-│   ├── tables/            every intermediate table as CSV
-│   ├── exports/           dashboard-ready CSVs for Spotfire / JMP / Excel
-│   └── summary.json       every headline number, machine readable
-├── docs/
-│   ├── methodology.md     formulas and rationale for every step
-│   └── spotfire_dashboard.md  page-by-page Spotfire build spec
-├── jmp/secom_spc.jsl      JMP script rebuilding the control charts from the exports
-├── scripts/download_data.py
-└── .github/workflows/ci.yml  lint, tests, smoke run on Python 3.10 and 3.12
+src/secom_spc/
+  config.py         analysis parameters
+  data.py           loading, time ordering, partitions
+  preprocess.py     sensor screening and imputation (fitted on Phase I)
+  spc.py            I-MR, X-bar/S, p, Laney p', EWMA and CUSUM charts
+  rules.py          Nelson rules 1 to 8
+  capability.py     Cp, Cpk, Pp, Ppk and percentile Cpk
+  multivariate.py   PCA monitoring: Hotelling T², SPE, contributions
+  drift.py          KS tests, adversarial validation, frozen sensors, within-week AUC
+  features.py       sensor ranking criteria and consensus
+  modeling.py       classifiers and the three evaluation protocols
+  plots.py          figures
+  pipeline.py       end-to-end analysis, one function per stage
+tests/              unit tests for constants, run rules, capability, MSPC, leakage and confounding
+docs/               methodology and Spotfire dashboard specification
+jmp/                JMP script that rebuilds the charts from the exports
+reports/            figures, tables, dashboard exports and summary.json
+data/raw/           the original UCI files
 ```
 
----
+### Outputs for dashboards
 
-## Outputs
+`reports/exports/` contains tidy CSV files intended for Spotfire, JMP or a spreadsheet:
 
-### Dashboard exports (`reports/exports/`)
-
-| File | Grain | Highlights |
+| File | One row per | Contents |
 |---|---|---|
-| `runs.csv` | 1 row per run | result, phase, # sensors in alarm, T², SPE, both limit types, alarm flags, predicted fail probability, PC1/PC2 |
-| `daily_kpi.csv` | 1 row per day | runs, fails, yield, 7-day yield, p and Laney limits, OOC flags |
-| `weekly_kpi.csv` | 1 row per week | runs, fails, yield |
-| `spc_top_sensors_long.csv` | run x top-20 sensor | value, CL/LCL/UCL, z, moving range, EWMA, CUSUM, all 8 Nelson flags |
-| `sensor_ranking.csv` | 1 row per sensor | all ranking metrics, within-week and hold-out AUC, alarm lift |
-| `capability.csv` | 1 row per sensor | proxy specs, Cpk/Ppk in each phase, shift, spread ratio, normality |
+| `runs.csv` | run | outcome, phase, alarm counts, T², SPE, limits, alarm flags, predicted fail probability |
+| `daily_kpi.csv` | day | runs, fails, yield, rolling yield, p and Laney limits |
+| `weekly_kpi.csv` | week | runs, fails, yield |
+| `spc_top_sensors_long.csv` | run and sensor (top 20) | value, limits, z, moving range, EWMA, CUSUM, Nelson flags |
+| `sensor_ranking.csv` | sensor | all ranking criteria and robustness checks |
+| `capability.csv` | sensor | proxy limits and capability indices by phase |
 
-* **Spotfire**: [`docs/spotfire_dashboard.md`](docs/spotfire_dashboard.md) specifies data tables, relations, calculated columns, five dashboard pages and alert rules.
-* **JMP**: [`jmp/secom_spc.jsl`](jmp/secom_spc.jsl) opens the exports and builds Control Chart Builder I-MR charts with Phase and Nelson tests, the p chart, the yield trend and T²/SPE plots. It is written for JMP 17/18 and has not been executed in CI.
+## References
 
-### Analysis tables (`reports/tables/`)
+Benjamini, Y., and Hochberg, Y. (1995). Controlling the false discovery rate. *Journal of the Royal Statistical Society B*, 57(1), 289-300.
 
-Screening log, duplicate-sensor map, missingness, per-sensor SPC summary, capability, KS drift, adversarial importances, frozen sensors, MSPC sensitivity, sensor ranking and method agreement, X-bar/S tables, temporal / walk-forward / shuffled model comparisons, daily and weekly yield.
+Clements, J. A. (1989). Process capability calculations for non-normal distributions. *Quality Progress*, 22(9), 95-100.
 
----
+Jackson, J. E., and Mudholkar, G. S. (1979). Control procedures for residuals associated with principal component analysis. *Technometrics*, 21(3), 341-349.
 
-## Design decisions
+Laney, D. B. (2002). Improved control charts for attributes. *Quality Engineering*, 14(4), 531-537.
 
-| Decision | Why |
-|---|---|
-| Every fit uses only earlier data | fab data drifts; anything else leaks the future |
-| Limits from Phase I **passing** runs, with iterative 3-sigma cleanup | a "known good" reference, as in a real control plan |
-| Moving-range sigma for I charts | short-term noise, insensitive to slow drift |
-| Charts use raw values, models use imputed values | a missing reading should never fire an alarm |
-| Laney p' alongside p chart | daily fail counts are over-dispersed |
-| Proxy specs, reported as capability **drift** | SECOM publishes no specs, so absolute Cpk would be fiction |
-| Empirical MSPC limits alongside F / chi-square | sensors are heavy tailed, parametric limits over-alarm |
-| Five ranking methods plus within-week and hold-out checks | single methods disagree; time trends masquerade as signal |
-| Selection inside CV folds | top-k filtering outside the fold inflates CV scores |
-| BER, PR AUC and bootstrap CIs | 6.6 % fail rate makes accuracy meaningless |
+MacGregor, J. F., and Kourti, T. (1995). Statistical process control of multivariate processes. *Control Engineering Practice*, 3(3), 403-414.
 
-Full formulas and references: [`docs/methodology.md`](docs/methodology.md).
+McCann, M., and Johnston, A. (2008). SECOM [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C54305
 
----
+Meinshausen, N., and Buehlmann, P. (2010). Stability selection. *Journal of the Royal Statistical Society B*, 72(4), 417-473.
 
-## Limitations
+Montgomery, D. C. (2019). *Introduction to Statistical Quality Control* (8th ed.). Wiley.
 
-* Sensors are anonymised, so no physical root cause can be named, and Cpk uses proxy specs.
-* Only 104 failures; hold-out and walk-forward periods contain 26 and 37. Small AUC differences are noise.
-* The pass/fail label comes from a downstream test that may depend on steps not captured here.
-* Runs are treated as independent; autocorrelation would make some univariate alarm rates higher than nominal.
-* The Spotfire dashboard is specified, not shipped as a `.dxp`; the JSL script has not been run inside JMP in CI.
+Nelson, L. S. (1984). The Shewhart control chart: Tests for special causes. *Journal of Quality Technology*, 16(4), 237-239.
 
----
+## License
 
-## References and citation
-
-* Montgomery, D. C. *Introduction to Statistical Quality Control*, 8th ed., Wiley, 2019.
-* Nelson, L. S. (1984). The Shewhart control chart: tests for special causes. *J. Quality Technology* 16(4).
-* Laney, D. B. (2002). Improved control charts for attributes. *Quality Engineering* 14(4).
-* Jackson, J. E. & Mudholkar, G. S. (1979). Control procedures for residuals associated with PCA. *Technometrics* 21(3).
-* MacGregor, J. F. & Kourti, T. (1995). Statistical process control of multivariate processes. *Control Engineering Practice* 3(3).
-* Meinshausen, N. & Buehlmann, P. (2010). Stability selection. *JRSS B* 72(4).
-
-Dataset: McCann, M. & Johnston, A. (2008). *SECOM* [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C54305 (CC BY 4.0)
-
-Code: MIT License, (c) 2026 Shyam Iyer.
+Code is released under the MIT License. The SECOM data are distributed by the UCI Machine Learning Repository under CC BY 4.0; see [data/README.md](data/README.md).

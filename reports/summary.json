@@ -10,6 +10,7 @@
     "production_days": 86,
     "missing_cells_pct": 4.537548808583821,
     "phase1_runs": 784,
+    "phase1_fails": 67,
     "phase1_end": "2008-09-11 08:06:00",
     "phase1_ref_pass_runs": 717,
     "train_runs": 1097,
@@ -26,9 +27,9 @@
     "retained": 324
   },
   "spc": {
-    "median_rule1_rate_phase1_pct": 2.789400278940028,
-    "median_rule1_rate_phase2_pct": 2.588235294117647,
-    "sensors_rule1_rate_phase2_gt_5pct": 110,
+    "median_rule1_rate_phase1_pct": 2.933673469387755,
+    "median_rule1_rate_phase2_pct": 2.362707535121328,
+    "sensors_rule1_rate_phase2_gt_5pct": 109,
     "runs_with_any_rule1_pct": 100.0,
     "median_sensors_in_alarm_per_run": 23.0,
     "mean_sensors_in_alarm_pass": 23.74777853725222,
@@ -101,17 +102,16 @@
     "var_explained_pct": 80.03290592313445,
     "t2_ucl": 137.83217070157423,
     "spe_ucl": 111.34544078047,
+    "t2_ucl_empirical": 271.3770491786617,
+    "spe_ucl_empirical": 136.39589131229917,
     "t2_alarm_rate_ref_pct": 8.507670850767084,
     "spe_alarm_rate_ref_pct": 2.6499302649930265,
     "t2_alarm_rate_phase2_pct": 25.41507024265645,
     "spe_alarm_rate_phase2_pct": 94.6360153256705,
-    "fail_rate_given_mv_alarm_phase2_pct": 4.588394062078273,
-    "fail_rate_given_no_mv_alarm_phase2_pct": 7.142857142857142,
-    "fails_caught_by_mv_alarm_phase2_pct": 91.8918918918919,
-    "t2_ucl_empirical": 271.3770491786617,
-    "spe_ucl_empirical": 136.39589131229917,
     "t2_alarm_rate_phase2_empirical_pct": 0.8939974457215836,
     "spe_alarm_rate_phase2_empirical_pct": 83.5249042145594,
+    "fail_rate_given_alarm_phase2_empirical_pct": 4.434250764525994,
+    "fail_rate_given_no_alarm_phase2_empirical_pct": 6.2015503875969,
     "example_run": 1152,
     "example_top_contributors": {
       "S542": 0.114,
@@ -249,91 +249,109 @@
     "top10": {
       "S059": {
         "auc": 0.756,
+        "within_week_auc": 0.645,
+        "test_auc": 0.473,
         "mw_q": 0.0,
         "stability_freq": 1.0,
-        "direction": "higher in fails",
-        "test_auc": 0.473
+        "alarm_lift": 2.126,
+        "fisher_p": 0.0,
+        "direction": "higher in fails"
       },
       "S129": {
         "auc": 0.603,
+        "within_week_auc": 0.511,
+        "test_auc": 0.612,
         "mw_q": 0.047,
         "stability_freq": 0.86,
-        "direction": "higher in fails",
-        "test_auc": 0.612
+        "alarm_lift": 0.386,
+        "fisher_p": 1.0,
+        "direction": "higher in fails"
       },
       "S028": {
         "auc": 0.374,
+        "within_week_auc": 0.476,
+        "test_auc": 0.428,
         "mw_q": 0.011,
         "stability_freq": 0.31,
-        "direction": "lower in fails",
-        "test_auc": 0.428
+        "alarm_lift": 0.488,
+        "fisher_p": 0.984,
+        "direction": "lower in fails"
       },
       "S247": {
         "auc": 0.672,
+        "within_week_auc": 0.564,
+        "test_auc": 0.562,
         "mw_q": 0.001,
         "stability_freq": 0.21,
-        "direction": "higher in fails",
-        "test_auc": 0.562
+        "alarm_lift": 2.36,
+        "fisher_p": 0.0,
+        "direction": "higher in fails"
       },
       "S033": {
         "auc": 0.615,
+        "within_week_auc": 0.564,
+        "test_auc": 0.584,
         "mw_q": 0.021,
         "stability_freq": 0.565,
-        "direction": "higher in fails",
-        "test_auc": 0.584
+        "alarm_lift": 1.563,
+        "fisher_p": 0.25,
+        "direction": "higher in fails"
       },
       "S122": {
         "auc": 0.395,
+        "within_week_auc": 0.462,
+        "test_auc": 0.443,
         "mw_q": 0.046,
         "stability_freq": 0.2,
-        "direction": "lower in fails",
-        "test_auc": 0.443
+        "alarm_lift": 1.19,
+        "fisher_p": 0.042,
+        "direction": "lower in fails"
       },
       "S562": {
         "auc": 0.409,
+        "within_week_auc": 0.407,
+        "test_auc": 0.543,
         "mw_q": 0.192,
         "stability_freq": 0.34,
-        "direction": "lower in fails",
-        "test_auc": 0.543
+        "alarm_lift": NaN,
+        "fisher_p": 1.0,
+        "direction": "lower in fails"
       },
       "S021": {
         "auc": 0.613,
+        "within_week_auc": 0.619,
+        "test_auc": 0.58,
         "mw_q": 0.024,
         "stability_freq": 0.695,
-        "direction": "higher in fails",
-        "test_auc": 0.58
+        "alarm_lift": 3.125,
+        "fisher_p": 0.009,
+        "direction": "higher in fails"
       },
       "S468": {
         "auc": 0.406,
+        "within_week_auc": 0.486,
+        "test_auc": 0.485,
         "mw_q": 0.079,
         "stability_freq": 0.155,
-        "direction": "lower in fails",
-        "test_auc": 0.485
+        "alarm_lift": 0.879,
+        "fisher_p": 0.727,
+        "direction": "lower in fails"
       },
       "S103": {
         "auc": 0.647,
+        "within_week_auc": 0.494,
+        "test_auc": 0.715,
         "mw_q": 0.001,
         "stability_freq": 0.11,
-        "direction": "higher in fails",
-        "test_auc": 0.715
+        "alarm_lift": 1.472,
+        "fisher_p": 0.149,
+        "direction": "higher in fails"
       }
     },
     "topk_direction_holds_pct": 70.0,
     "topk_median_train_auc_effect": 0.10409547675095554,
     "topk_median_test_auc_effect": 0.07125530725643842,
-    "top10_within_week_auc": {
-      "S059": 0.645,
-      "S129": 0.511,
-      "S028": 0.476,
-      "S247": 0.564,
-      "S033": 0.564,
-      "S122": 0.462,
-      "S562": 0.407,
-      "S021": 0.619,
-      "S468": 0.486,
-      "S103": 0.494
-    },
-    "method_spearman_min": 0.10381312654811858,
+    "method_spearman_min": 0.10345072888113817,
     "method_spearman_max": 0.9783891207244374
   },
   "models_temporal": {
@@ -496,7 +514,7 @@
     }
   },
   "best_model_by_test_pr_auc": "Logistic (top 20 by AUC, in-fold)",
-  "runtime_s": 467.4,
+  "runtime_s": 459.0,
   "config": {
     "phase1_frac": 0.5,
     "phase1_pass_only": true,
@@ -519,6 +537,8 @@
     "top_k_sensors": 20,
     "test_frac": 0.3,
     "cv_folds": 5,
+    "walk_forward_block": 100,
+    "walk_forward_window": 500,
     "n_charted_sensors": 6
   }
 }

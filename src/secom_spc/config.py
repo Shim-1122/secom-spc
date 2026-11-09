@@ -6,7 +6,7 @@ reproducible and the choices are visible in one place.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -60,16 +60,20 @@ class Config:
     top_k_sensors: int = 20
     test_frac: float = 0.30          # final 30 % of runs (in time) held out
     cv_folds: int = 5
+    walk_forward_block: int = 100    # runs scored per retraining step
+    walk_forward_window: int = 500   # training-window length for the sliding variant
 
     # Sensors charted individually in the report
     n_charted_sensors: int = 6
 
-    extra: dict = field(default_factory=dict)
+    def as_dict(self) -> dict:
+        return asdict(self)
 
 
 CFG = Config()
 
 
 def ensure_dirs() -> None:
+    """Create the output directories if they do not exist."""
     for d in (FIG_DIR, TABLE_DIR, EXPORT_DIR):
         d.mkdir(parents=True, exist_ok=True)

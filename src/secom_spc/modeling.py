@@ -61,10 +61,20 @@ def _clip(z):
     return np.clip(z, -10, 10)
 
 
+MODEL_L1 = "L1 logistic (all sensors)"
+MODEL_RF = "Random forest (balanced)"
+MODEL_GB = "Gradient boosting (hist, NaN-native)"
+
+
+def topk_model_name(k: int) -> str:
+    return f"Logistic (top {k} by AUC, in-fold)"
+
+
 def model_zoo(cfg) -> dict[str, Pipeline]:
+    """The candidate classifiers, keyed by display name."""
     rs = cfg.random_state
     return {
-        "L1 logistic (all sensors)": Pipeline(
+        MODEL_L1: Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median")),
                 ("scale", StandardScaler()),
@@ -72,7 +82,7 @@ def model_zoo(cfg) -> dict[str, Pipeline]:
                 ("clf", l1_logistic(0.05, class_weight="balanced", max_iter=5000)),
             ]
         ),
-        f"Logistic (top {cfg.top_k_sensors} by AUC, in-fold)": Pipeline(
+        topk_model_name(cfg.top_k_sensors): Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median")),
                 ("select", TopKByAUC(k=cfg.top_k_sensors)),
@@ -81,7 +91,7 @@ def model_zoo(cfg) -> dict[str, Pipeline]:
                 ("clf", LogisticRegression(C=0.1, class_weight="balanced", max_iter=5000)),
             ]
         ),
-        "Random forest (balanced)": Pipeline(
+        MODEL_RF: Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median")),
                 (
@@ -93,7 +103,7 @@ def model_zoo(cfg) -> dict[str, Pipeline]:
                 ),
             ]
         ),
-        "Gradient boosting (hist, NaN-native)": Pipeline(
+        MODEL_GB: Pipeline(
             [
                 (
                     "clf",
@@ -108,15 +118,16 @@ def model_zoo(cfg) -> dict[str, Pipeline]:
     }
 
 
-def ber_threshold(y, p) -> float:
-    """Threshold that minimises balanced error rate."""
+def ber_threshold(y: np.ndarray, p: np.ndarray) -> float:
+    """Score threshold that minimises the balanced error rate."""
     fpr, tpr, thr = roc_curve(y, p)
     ber = 0.5 * (fpr + (1 - tpr))
     i = int(np.argmin(ber))
     return float(thr[i]) if np.isfinite(thr[i]) else 0.5
 
 
-def metrics_at(y, p, thr: float) -> dict:
+def metrics_at(y: np.ndarray, p: np.ndarray, thr: float) -> dict:
+    """Threshold-free and threshold-dependent metrics for scores ``p``."""
     y = np.asarray(y)
     pred = (p >= thr).astype(int)
     tn, fp, fn, tp = confusion_matrix(y, pred, labels=[0, 1]).ravel()
@@ -135,7 +146,8 @@ def metrics_at(y, p, thr: float) -> dict:
     }
 
 
-def bootstrap_auc_ci(y, p, n_boot: int = 1000, seed: int = 0) -> tuple[float, float]:
+def bootstrap_auc_ci(y: np.ndarray, p: np.ndarray, n_boot: int = 1000, seed: int = 0) -> tuple[float, float]:
+    """95 % percentile-bootstrap interval for ROC AUC."""
     rng = np.random.default_rng(seed)
     y, p = np.asarray(y), np.asarray(p)
     vals = []
@@ -149,6 +161,8 @@ def bootstrap_auc_ci(y, p, n_boot: int = 1000, seed: int = 0) -> tuple[float, fl
 
 @dataclass
 class EvalResult:
+    """Comparison table plus out-of-fold (train) and hold-out (test) scores."""
+
     table: pd.DataFrame
     test_scores: dict[str, np.ndarray]
     oof_scores: dict[str, np.ndarray]
@@ -191,7 +205,7 @@ def evaluate_models(X: pd.DataFrame, y: np.ndarray, train: np.ndarray, cfg, extr
     return EvalResult(pd.DataFrame(rows).set_index("model"), test_scores, oof_scores, fitted)
 
 
-def _row(name, cvm, tm, lo, hi) -> dict:
+def _row(name: str, cvm: dict, tm: dict, lo: float, hi: float) -> dict:
     return {
         "model": name,
         "train_cv_roc_auc": cvm["roc_auc"],
@@ -209,9 +223,14 @@ def _row(name, cvm, tm, lo, hi) -> dict:
 
 
 def random_split_cv(X: pd.DataFrame, y: np.ndarray, cfg, n_splits: int = 10) -> pd.DataFrame:
-    """Shuffled stratified CV on all data, for comparison with the
-    UCI baseline (which used 10-fold CV). Expect this to look better
-    than the temporal hold-out."""
+    """Shuffled stratified k-fold CV on all runs.
+
+    Included only for comparison with published SECOM results, most of
+    which use shuffled 10-fold CV. Because folds mix early and late runs,
+    the estimate is optimistic for a drifting process. The BER column is
+    additionally optimistic because the threshold is tuned on the same
+    out-of-fold predictions it is evaluated on.
+    """
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=cfg.random_state)
     rows = []
     for name, pipe in model_zoo(cfg).items():

@@ -88,3 +88,18 @@ def test_ewma_and_cusum_detect_small_shift_faster_than_shewhart():
     first_shew = np.argmax(np.abs(x[200:]) > 3)
     assert ew.ooc.values[200:].any() and cu.ooc.values[200:].any()
     assert min(first_ewma, first_cusum) <= first_shew
+
+
+def test_phase_label_follows_time_mask_not_reference_mask():
+    # A failed run inside Phase I is excluded from the limit baseline but
+    # must still be labelled Phase I.
+    x = np.random.default_rng(7).normal(size=100)
+    phase1 = np.arange(100) < 50
+    ref = phase1.copy()
+    ref[10] = False
+    ch = spc.imr_chart(x, ref, phase1=phase1)
+    assert ch.phase.iloc[10] == "I"
+    assert (ch.phase == "I").sum() == 50
+    st = spc.xbar_s_chart(x, ref, size=5, phase1=phase1)
+    assert st.phase_I.sum() == 10
+    assert st.baseline.sum() == 9
