@@ -83,12 +83,12 @@ Yield over the whole record is 93.4 %. It rises from 91.5 % in Phase I to 95.3 %
 Charting each sensor separately is not workable at this scale. With limits from Phase I, the median sensor exceeds 3 sigma on 2.9 % of Phase I runs and 2.4 % of Phase II runs, roughly ten times the nominal 0.27 %. Every run has at least one sensor beyond 3 sigma; the median is 23 sensors per run (Figure 2). Failing runs average 25.4 such sensors against 23.7 for passing runs. Two properties of the data explain the excess. Most sensors are heavy-tailed: only 1.2 % pass a D'Agostino-Pearson normality test at the 5 % level. The moving-range estimator also understates the spread of such sensors.
 
 ![Figure 2](reports/figures/05_alarm_load.png)
-*Figure 2. Number of sensors beyond their 3-sigma I-chart limits in each run.*
+*Figure 2. Number of sensors beyond their 3-sigma I-chart limits in each run: 50-run rolling median with 10th to 90th percentile band, and individual failed runs.*
 
 Sensor S059, the top-ranked sensor in Section 4.6, illustrates a regime change within Phase I. Its readings are high and variable for the first 480 or so runs, where many of the early failures occur, and fall into a narrow band afterwards (Figure 3).
 
 ![Figure 3](reports/figures/08_imr_01_S059.png)
-*Figure 3. I-MR chart for S059. Crosses mark points beyond 3 sigma, open circles mark other Nelson rule violations, and ticks along the bottom mark failed runs.*
+*Figure 3. I-MR chart for S059. Crosses mark points beyond 3 sigma, open circles mark other Nelson rule violations, triangles mark values beyond the plotted range, and the strip between the panels marks failed runs.*
 
 The corresponding X-bar/S chart and I-MR charts for the five next-ranked sensors are in [reports/figures](reports/figures).
 
@@ -104,7 +104,7 @@ Against the proxy limits, the median Ppk is 1.00 in Phase I and 0.95 in Phase II
 Eighty-five principal components are needed to explain 80 % of the reference variance, so the sensors are only weakly correlated. The parametric T² limit assumes multivariate normality and is exceeded by 8.5 % of the reference runs themselves. Under the empirical limit, T² signals on 0.9 % of Phase II runs, close to the nominal 1 %. SPE behaves very differently: it signals on 83.5 % of Phase II runs, and the increase begins at the start of Phase II (Figure 5). Within Phase I the SPE chart is informative about failure: 15 of the 23 Phase I runs above the SPE limit failed (65 %), against a Phase I fail rate of 8.5 %.
 
 ![Figure 5](reports/figures/06_hotelling_t2_spe.png)
-*Figure 5. Hotelling T² and SPE for every run, log scale. Alarms are judged against the empirical limit (dash-dot line).*
+*Figure 5. Hotelling T² and SPE for every run, log scale. The solid red line is the empirical 99 % limit used for alarms; the dashed line is the parametric limit.*
 
 The SPE contribution plot for the failing Phase II run with the largest SPE (run 1152) ranks S542 first (Figure 6). Refitting the monitor without the drifting sensors shows that a small number of them account for most of the Phase II alarms (Table 2).
 

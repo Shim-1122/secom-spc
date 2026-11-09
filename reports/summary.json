@@ -312,7 +312,7 @@
         "within_week_auc": 0.407,
         "test_auc": 0.543,
         "mw_q": 0.192,
-        "stability_freq": 0.34,
+        "stability_freq": 0.345,
         "alarm_lift": NaN,
         "fisher_p": 1.0,
         "direction": "lower in fails"
@@ -351,7 +351,7 @@
     "topk_direction_holds_pct": 70.0,
     "topk_median_train_auc_effect": 0.10409547675095554,
     "topk_median_test_auc_effect": 0.07125530725643842,
-    "method_spearman_min": 0.10345072888113817,
+    "method_spearman_min": 0.10343880545040177,
     "method_spearman_max": 0.9783891207244374
   },
   "models_temporal": {
@@ -514,7 +514,7 @@
     }
   },
   "best_model_by_test_pr_auc": "Logistic (top 20 by AUC, in-fold)",
-  "runtime_s": 459.0,
+  "runtime_s": 458.2,
   "config": {
     "phase1_frac": 0.5,
     "phase1_pass_only": true,
