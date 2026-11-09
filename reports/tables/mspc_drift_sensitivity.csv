@@ -1,0 +1,5 @@
+sensor_set,n_sensors,pcs,t2_alarm_phase2_pct,spe_alarm_phase2_pct
+all retained sensors,324,85,0.8939974457215836,83.5249042145594
+minus frozen-then-live sensors,318,84,0.6385696040868455,31.673052362707537
+minus top 20 KS-drift sensors,304,82,0.8939974457215836,18.51851851851852
+minus all sensors with KS p < 1e-6,156,56,1.277139208173691,7.918263090676884

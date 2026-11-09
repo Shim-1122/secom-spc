@@ -1,0 +1,79 @@
+// secom_spc.jsl
+// JMP companion to the Python pipeline. Rebuilds the main SPC views from the
+// CSV exports so they can be explored interactively in JMP.
+//
+// Usage: run `python -m secom_spc.pipeline` first, then in JMP open this file
+// and Run Script. When prompted, pick the reports/exports folder.
+//
+// Note: written against JMP 17/18 Control Chart Builder syntax. It has not
+// been executed in JMP as part of this repository's CI.
+
+Names Default To Here( 1 );
+
+root = Pick Directory( "Select the secom-spc/reports/exports folder" );
+If( Is Missing( root ) | root == "", Throw( "No folder selected" ) );
+
+// ---------------------------------------------------------------------------
+// 1. Individuals / moving range charts for the top failure-predictive sensors,
+//    with Phase I limits applied to Phase II and Nelson tests 1 to 8 enabled.
+// ---------------------------------------------------------------------------
+spc = Open( root || "spc_top_sensors_long.csv" );
+spc:phase << Set Property( "Value Order", {Custom Order( {"I", "II"} )} );
+
+spc << Control Chart Builder(
+	Size( 900, 520 ),
+	Show Control Panel( 0 ),
+	Variables( Subgroup( :run_id ), Y( :value ), Phase( :phase ) ),
+	Chart(
+		Position( 1 ),
+		Limits( Sigma( "Moving Range" ) ),
+		Warnings(
+			Test 1( 1 ), Test 2( 1 ), Test 3( 1 ), Test 4( 1 ),
+			Test 5( 1 ), Test 6( 1 ), Test 7( 1 ), Test 8( 1 )
+		)
+	),
+	Chart( Position( 2 ), Limits( Sigma( "Moving Range" ) ) ),
+	By( :sensor )
+);
+
+// ---------------------------------------------------------------------------
+// 2. p chart of the daily fail fraction (yield KPI) with variable limits.
+// ---------------------------------------------------------------------------
+daily = Open( root || "daily_kpi.csv" );
+daily << Control Chart Builder(
+	Size( 900, 360 ),
+	Show Control Panel( 0 ),
+	Class( "Attribute" ),
+	Variables( Subgroup( :date ), Y( :fails ), n Trials( :runs ) ),
+	Chart( Position( 1 ), Points( Statistic( "Proportion" ) ), Limits( Sigma( "Binomial (P)" ) ) )
+);
+
+// Yield trend with the 7-day rolling line
+daily << Graph Builder(
+	Size( 900, 360 ),
+	Show Control Panel( 0 ),
+	Variables( X( :date ), Y( :yield_pct ), Y( :yield_7d, Position( 1 ) ) ),
+	Elements( Points( X, Y( 1 ) ), Line( X, Y( 2 ) ) )
+);
+
+// ---------------------------------------------------------------------------
+// 3. Run-level multivariate monitoring: Hotelling T^2 and SPE with limits.
+// ---------------------------------------------------------------------------
+runs = Open( root || "runs.csv" );
+runs << Graph Builder(
+	Size( 900, 520 ),
+	Show Control Panel( 0 ),
+	Variables( X( :run_id ), Y( :hotelling_t2 ), Y( :spe_q ), Color( :result ) ),
+	Elements( Position( 1, 1 ), Points( X, Y ) ),
+	Elements( Position( 1, 2 ), Points( X, Y ) ),
+	SendToReport(
+		Dispatch( {}, "hotelling_t2", ScaleBox, {Scale( "Log" )} ),
+		Dispatch( {}, "spe_q", ScaleBox, {Scale( "Log" )} )
+	)
+);
+
+// ---------------------------------------------------------------------------
+// 4. Sensor ranking table, sorted, for drill-down.
+// ---------------------------------------------------------------------------
+rank = Open( root || "sensor_ranking.csv" );
+rank << Sort( By( :consensus_rank ), Order( Ascending ), Replace Table );
