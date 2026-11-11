@@ -230,9 +230,21 @@ The monitor detects process change, not product failure. No strategy flags faile
 
 Shuffled cross-validation overstated achievable performance by about 0.2 AUC on this dataset. Evaluating on later data, and retraining on a schedule, gives a more realistic view of how a failure-prediction model would behave in production.
 
+### 5.1 Spotfire dashboard
+
+The exported CSVs were loaded into a Spotfire analysis (Spotfire 15.1, data embedded in the file). The four pages below reproduce the main monitoring views.
+
+| Weekly line-test pass rate | Daily pass rate, 7-day rolling mean, change point (7 Sep) |
+|---|---|
+| ![Weekly pass rate](docs/img/spotfire_weekly_pass_rate.png) | ![Daily pass rate with change point](docs/img/spotfire_daily_rolling_changepoint.png) |
+| **Daily failures, colored by p-chart out-of-control flag** | **Single-sensor AUC, sorted** |
+| ![Daily failures](docs/img/spotfire_daily_fails_ooc.png) | ![Sensor AUC](docs/img/spotfire_sensor_auc.png) |
+
+The rolling mean shows the pass rate stabilising near 95 to 100 percent after the detected change point. Two days exceed the binomial p-chart limit; the overdispersion-corrected Laney limits flag fewer. Most sensors sit near AUC 0.5, with a short tail of weakly informative sensors, consistent with Section 4.
+
 ## 6. Limitations
 
-Sensor identities, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed. Without lot, wafer, tool or chamber identifiers, commonality analysis, often the first step in a real yield investigation, is not possible. The data contain 104 failures, 26 in the test partition and 28 in the monitoring period, so confidence intervals are wide and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented here. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The change point is estimated, not recorded; its plateau spans 4 to 9 September. The Spotfire dashboard is specified in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md) but not included as a built file, and the JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) has not been run in JMP as part of continuous integration.
+Sensor identities, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed. Without lot, wafer, tool or chamber identifiers, commonality analysis, often the first step in a real yield investigation, is not possible. The data contain 104 failures, 26 in the test partition and 28 in the monitoring period, so confidence intervals are wide and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented here. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The change point is estimated, not recorded; its plateau spans 4 to 9 September. The Spotfire dashboard (Section 5.1) covers four of the five pages in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md), and the JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) has not been run in JMP as part of continuous integration.
 
 ## 7. Reproducing the analysis
 
