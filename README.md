@@ -270,6 +270,15 @@ The SPE panel shows the step change near run 737 more clearly than any single se
 
 The dashboard is live at [https://shim-1122.github.io/secom-spc/](https://shim-1122.github.io/secom-spc/); its source, [docs/index.html](docs/index.html), is a single self-contained HTML file (no server, no external libraries) with five pages: overview, multivariate monitor, alarm burden, sensors and per-sensor control charts. It is generated from the exports by `python scripts/build_dashboard.py` and gives the same views to a reader without Spotfire or JMP. The walkthrough video at the top of this page is rendered from the same exports by `python scripts/make_walkthrough.py`.
 
+### 5.4 Excel and VBA
+
+[excel/SECOM_SPC.xlsm](excel/SECOM_SPC.xlsm) is a macro-enabled workbook for readers who work in Excel. The module [excel/SECOM_SPC.bas](excel/SECOM_SPC.bas) adds two macros, run from Tools, Macro, Macros (Option+F8 on Mac):
+
+- `RunSensorChart` sets individuals-chart limits from the Phase I runs (mean plus or minus 3 x mean moving range / 1.128) for the sensor in the yellow input cell, flags Nelson rules 1 to 3, counts alarm days and draws the chart on a `Chart` sheet.
+- `RunRebaseline` compares alarms per day after the change point with frozen Phase I limits and with limits re-baselined on the first 200 runs after it.
+
+For sensor S028 and change point run 737 the macro reports 4.52 alarms per day with frozen limits and 0.10 with re-baselined limits, the same figures as the Python code. Tested in Excel for Mac. `scripts/build_excel.py` rebuilds the data sheets from the exports.
+
 ## 6. Limitations
 
 Sensor identities, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed. Without lot, wafer, tool or chamber identifiers, commonality analysis, often the first step in a real yield investigation, is not possible. The data contain 104 failures, 26 in the test partition and 28 in the monitoring period, so confidence intervals are wide and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented here. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The change point is estimated, not recorded; its plateau spans 4 to 9 September. The Spotfire dashboard (Section 5.1) covers four of the five pages in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md). The JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) was run manually in JMP 19 (Section 5.2) but is not part of continuous integration.
