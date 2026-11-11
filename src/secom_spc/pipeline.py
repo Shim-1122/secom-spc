@@ -295,7 +295,7 @@ def stage_mspc(ctx: Context) -> multivariate.MSPCResult:
     return ms
 
 
-def stage_drift(ctx: Context, cap: pd.DataFrame) -> None:
+def stage_drift(ctx: Context, cap: pd.DataFrame, ms: multivariate.MSPCResult) -> None:
     cfg, Xr, Xi = ctx.cfg, ctx.Xr, ctx.Xi
     ks = drift.shift_spread(Xr, ctx.phase1, ctx.phase2)
     ks = ks.join(cap[["Ppk_I", "Ppk_II"]].add_prefix("proxy_"))
@@ -304,6 +304,16 @@ def stage_drift(ctx: Context, cap: pd.DataFrame) -> None:
     adv_imp.rename("adversarial_importance").to_csv(TABLE_DIR / "drift_adversarial_importance.csv")
     frozen = drift.frozen_sensors(Xr, pd.Series(ctx.week))
     frozen.to_csv(TABLE_DIR / "frozen_then_live_sensors.csv")
+
+    # Which sensors carry the SPE in each phase. Phase I shares come from the
+    # model fitted on those runs, so they describe the reference pattern only.
+    shares = multivariate.phase_contribution_shares(ms.spe_contrib, ctx.phase1, ctx.phase2)
+    shares["frozen_then_live"] = shares.index.isin(frozen.index)
+    shares.to_csv(TABLE_DIR / "spe_contribution_by_phase.csv", index_label="sensor")
+    plots.phase_contribution_figure(shares.head(12), FIG_DIR / "06c_spe_contribution_by_phase.png")
+    ctx.summary["mspc"]["spe_share_frozen_then_live_phase1_pct"] = float(100 * shares.loc[shares.frozen_then_live, "share_phase1"].sum())
+    ctx.summary["mspc"]["spe_share_frozen_then_live_phase2_pct"] = float(100 * shares.loc[shares.frozen_then_live, "share_phase2"].sum())
+    ctx.summary["mspc"]["spe_top_phase2_sensors"] = {k: round(float(v), 4) for k, v in shares.share_phase2.head(8).items()}
 
     shown = list(dict.fromkeys([*adv_imp.index[:4], *ks.index[:4]]))[:6]
     plots.drift_figure(Xr, ctx.meta, shown, ctx.meta.timestamp[ctx.boundary], FIG_DIR / "11_drift_sensors.png")
@@ -595,6 +605,7 @@ def stage_exports(
     spc_long.to_csv(EXPORT_DIR / "spc_top_sensors_long.csv", index=False)
     rank.reset_index().to_csv(EXPORT_DIR / "sensor_ranking.csv", index=False)
     pd.read_csv(TABLE_DIR / "sensor_shift_spread.csv").to_csv(EXPORT_DIR / "sensor_shift_spread.csv", index=False)
+    pd.read_csv(TABLE_DIR / "spe_contribution_by_phase.csv").to_csv(EXPORT_DIR / "spe_contribution_by_phase.csv", index=False)
     log.info("exports written")
 
 
@@ -621,7 +632,7 @@ def run(cfg: Config = CFG, fast: bool = False) -> dict:
     daily, weekly = stage_pass_rate(ctx)
     cap = stage_capability(ctx)
     ms = stage_mspc(ctx)
-    stage_drift(ctx, cap)
+    stage_drift(ctx, cap, ms)
     alarms = stage_monitoring(ctx, daily)
     rank = stage_ranking(ctx, spc_mat)
     spc_long = stage_sensor_charts(ctx, rank)

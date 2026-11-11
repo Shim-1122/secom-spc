@@ -139,6 +139,18 @@
       "S129": 0.013,
       "S255": 0.011,
       "S000": 0.01
+    },
+    "spe_share_frozen_then_live_phase1_pct": 2.635582538681237,
+    "spe_share_frozen_then_live_phase2_pct": 58.34845718744369,
+    "spe_top_phase2_sensors": {
+      "S543": 0.1616,
+      "S545": 0.1462,
+      "S542": 0.1399,
+      "S544": 0.1334,
+      "S129": 0.0115,
+      "S078": 0.0062,
+      "S255": 0.0059,
+      "S132": 0.0055
     }
   },
   "drift": {
@@ -478,7 +490,7 @@
     "topk_direction_holds_pct": 65.0,
     "topk_median_train_auc_effect": 0.10409547675095554,
     "topk_median_test_auc_effect": 0.06949584567554828,
-    "method_spearman_min": 0.09086977825725269,
+    "method_spearman_min": 0.09095530936522618,
     "method_spearman_max": 0.9782299386709438
   },
   "models_temporal": {
@@ -641,7 +653,7 @@
     }
   },
   "best_model_by_test_pr_auc": "Logistic (top 20 by AUC, in-fold)",
-  "runtime_s": 478.3,
+  "runtime_s": 635.5,
   "config": {
     "phase_boundary": "changepoint",
     "phase1_frac": 0.5,

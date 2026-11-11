@@ -27,3 +27,18 @@ def test_spe_catches_broken_correlation_and_contrib_points_to_sensor():
     assert (r.spe[~ref] > r.spe_ucl).mean() > 0.8
     top = MV.top_contributors(r.spe_contrib, X.index[-1], k=1)[0][0]
     assert top == "S7"
+
+
+def test_phase_contribution_shares_sum_to_one_and_sort():
+    import numpy as np
+    import pandas as pd
+
+    from secom_spc.multivariate import phase_contribution_shares
+
+    c = pd.DataFrame({"A": [1.0, 1.0, 0.0, 0.0], "B": [1.0, 1.0, 6.0, 6.0], "C": [2.0, 2.0, 2.0, 2.0]})
+    p1 = np.array([True, True, False, False])
+    out = phase_contribution_shares(c, p1, ~p1)
+    assert np.allclose(out.sum(), 1.0)
+    assert list(out.index) == ["B", "C", "A"]
+    assert np.isclose(out.loc["B", "share_phase2"], 0.75)
+    assert np.isclose(out.loc["A", "share_phase1"], 0.25)

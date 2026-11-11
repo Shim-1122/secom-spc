@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SECOM SPC dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f6f5f1; --surface: #fcfcfb; --border: #e4e3dc; --grid: #ebeae4; --axis: #c3c2b7;
+  --text: #0b0b0b; --text2: #52514e; --muted: #898781; --band: #f1f0ea;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --neutral: #b9b8ae; --crit: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #111110; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624; --axis: #55544f;
+    --text: #f0efec; --text2: #c3c2b7; --muted: #8f8e87; --band: #222220;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neutral: #6b6a64; --crit: #e66767;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 56px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--text2); margin: 0 0 18px; max-width: 78ch; }
+.sub a, footer a, .note a { color: var(--s1); }
+nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+nav button { font: inherit; padding: 7px 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text2); cursor: pointer; }
+nav button[aria-selected="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
+nav button:focus-visible, select:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+section[hidden] { display: none; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.tile, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.tile { padding: 14px 16px; }
+.tile .k { color: var(--text2); font-size: 12.5px; }
+.tile .v { font-size: 26px; font-weight: 650; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.tile .d { color: var(--muted); font-size: 12.5px; }
+.card { padding: 16px 16px 10px; margin-bottom: 12px; position: relative; }
+.card h2 { font-size: 15px; margin: 0; }
+.card .desc { color: var(--text2); font-size: 13px; margin: 2px 0 8px; max-width: 90ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--text2); margin-bottom: 4px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.legend i.dot { width: 9px; height: 9px; border-radius: 50%; }
+.legend i.box { width: 11px; height: 11px; border-radius: 3px; }
+.legend i.dash { background: none !important; border-top: 2px dashed var(--muted); height: 0; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { fill: var(--text2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+svg .grid { stroke: var(--grid); }
+svg .ax { stroke: var(--axis); }
+svg .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgb(0 0 0 / .14); min-width: 150px; z-index: 5; display: none; }
+.tip .h { color: var(--text2); margin-bottom: 4px; }
+.tip .r { display: flex; align-items: center; gap: 8px; }
+.tip .r i { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.tip .r b { font-variant-numeric: tabular-nums; }
+.tip .r span { color: var(--text2); }
+.note { color: var(--text2); font-size: 13px; margin: 0 2px 12px; max-width: 90ch; }
+.row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; color: var(--text2); }
+select { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.two .card { margin-bottom: 0; }
+.two { margin-bottom: 12px; }
+footer { color: var(--muted); font-size: 12.5px; margin-top: 20px; }
+@media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>SECOM fab sensor monitoring</h1>
+  <p class="sub">Statistical process control on the UCI SECOM dataset: <span id="hdr"></span>.
+    Built from the pipeline exports in <a href="https://github.com/Shim-1122/secom-spc">Shim-1122/secom-spc</a>. Hover any chart for values.</p>
+
+  <nav role="tablist" aria-label="Dashboard pages">
+    <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-tab="mspc" aria-selected="false">Multivariate monitor</button>
+    <button role="tab" data-tab="alarms" aria-selected="false">Alarm burden</button>
+    <button role="tab" data-tab="sensors" aria-selected="false">Sensors</button>
+    <button role="tab" data-tab="spc" aria-selected="false">Control charts</button>
+  </nav>
+
+  <section id="overview">
+    <div class="tiles" id="tiles"></div>
+    <div class="card">
+      <h2>Line-test pass rate by day</h2>
+      <p class="desc">Daily pass rate and its 7-day rolling mean. The vertical line marks the change point detected from the sensors alone, without using the pass/fail labels.</p>
+      <div id="c-pass"></div>
+    </div>
+    <div class="card">
+      <h2>Failed runs per day</h2>
+      <p class="desc">Days above the Laney p′ upper limit (which corrects the p chart for overdispersion) are marked.</p>
+      <div id="c-fails"></div>
+    </div>
+  </section>
+
+  <section id="mspc" hidden>
+    <p class="note">A PCA model of the sensors is fitted on passing runs before the change point. Hotelling T² measures unusual levels along the normal correlation pattern; SPE measures departures from that pattern. Limits are the empirical 99th percentile of out-of-fold reference scores.</p>
+    <div class="card">
+      <h2>SPE (squared prediction error) by run</h2>
+      <p class="desc">SPE steps up at the change point and stays above the frozen limit. Failed runs are not higher than passing runs: the monitor sees a sensor change, not product failure.</p>
+      <div id="c-spe"></div>
+    </div>
+    <div class="card">
+      <h2>Hotelling T² by run</h2>
+      <p class="desc">T² moves much less than SPE, so the correlation structure changed more than the operating level did.</p>
+      <div id="c-t2"></div>
+    </div>
+  </section>
+
+  <section id="alarms" hidden>
+    <div class="tiles" id="tiles-alarm"></div>
+    <div class="card">
+      <h2>Multivariate alarms per day under three limit strategies</h2>
+      <p class="desc">Frozen limits come from Phase I and are never updated. Re-baselined limits are refitted on 250 passing runs after the change, so they apply from the start of the monitoring period. Rolling limits are refitted daily on the last 150 passing runs.</p>
+      <div id="c-alarms"></div>
+    </div>
+    <p class="note">Operating figures in the tiles cover the monitoring period only, after the re-baselining window. No strategy flags failed runs at a higher rate than passing runs.</p>
+  </section>
+
+  <section id="sensors" hidden>
+    <div class="two">
+      <div class="card">
+        <h2>Sensors behind the SPE shift</h2>
+        <p class="desc">Share of total SPE carried by each sensor, before and after the change point. Frozen-then-live sensors reported a held value for weeks, then began reporting live readings.</p>
+        <div id="c-contrib"></div>
+      </div>
+      <div class="card">
+        <h2>Top failure-associated sensors</h2>
+        <p class="desc">Single-sensor AUC for the 15 sensors with the best consensus rank, drawn as distance from chance (0.5), on the training period and on later hold-out data. Bars that switch sides did not hold up.</p>
+        <div id="c-rank"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="spc" hidden>
+    <div class="card">
+      <h2>Individuals control chart</h2>
+      <div class="row"><label for="sel">Sensor</label><select id="sel"></select><span id="spc-info"></span></div>
+      <p class="desc">Limits are estimated from Phase I and applied unchanged to Phase II. Marked points break at least one of the eight Nelson rules.</p>
+      <div id="c-spc"></div>
+    </div>
+  </section>
+
+  <footer>Data: UCI SECOM (1,567 runs, 2008). Sensor names and units are anonymised, so no physical interpretation is possible.
+    Tables: <a href="https://github.com/Shim-1122/secom-spc/tree/main/reports/exports">CSV exports</a>.</footer>
+</main>
+
+<script>
+const D = /*__DATA__*/null;
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+};
+const h = (tag, cls, text, parent) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  if (parent) parent.appendChild(n);
+  return n;
+};
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const t = s => Date.parse(s + "T00:00:00Z");
+const fmtDate = ms => { const d = new Date(ms); return d.getUTCDate() + " " + MON[d.getUTCMonth()] + " " + d.getUTCFullYear(); };
+const fmtDay = ms => { const d = new Date(ms); return d.getUTCDate() + " " + MON[d.getUTCMonth()]; };
+const num = (v, d = 0) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+function niceTicks(lo, hi, n) {
+  const span = hi - lo, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n) || 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
+function logTicks(lo, hi) {
+  const out = [];
+  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++)
+    for (const m of [1, 2, 5]) { const v = m * Math.pow(10, e); if (v >= lo && v <= hi) out.push(v); }
+  return out;
+}
+
+function legend(host, items) {
+  if (items.length < 2) return;
+  const box = h("div", "legend", null, host);
+  for (const it of items) {
+    const s = h("span", null, null, box), i = h("i", it.shape || "", null, s);
+    if (it.shape !== "dash") i.style.background = it.color;
+    s.appendChild(document.createTextNode(it.name));
+  }
+}
+
+/* Continuous-x chart: lines, dots and thin bars with a shared crosshair tooltip. */
+function chart(host, cfg) {
+  host = typeof host === "string" ? document.getElementById(host) : host;
+  host.textContent = "";
+  const card = host.closest(".card");
+  legend(host, cfg.series.filter(s => !s.noLegend).map(s => ({ name: s.name, color: s.color, shape: s.kind === "dots" ? "dot" : s.kind === "bars" ? "box" : "" }))
+    .concat((cfg.hlines || []).filter(l => l.legend).map(l => ({ name: l.legend, shape: "dash" }))));
+  const W = 1060, H = cfg.h || 300, m = { l: 54, r: 18, t: 30, b: cfg.xLabel ? 44 : 30 };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.label || "" }, host);
+  const all = cfg.series.flatMap(s => s.pts);
+  const xs = all.map(p => p[0]);
+  const x0 = cfg.xMin ?? Math.min(...xs), x1 = cfg.xMax ?? Math.max(...xs);
+  let ys = all.map(p => p[1]).concat((cfg.hlines || []).map(l => l.y));
+  let y0 = cfg.yMin ?? Math.min(...ys), y1 = cfg.yMax ?? Math.max(...ys);
+  if (cfg.yMin == null && !cfg.yLog) y0 -= (y1 - y0) * 0.05;
+  if (cfg.yMax == null) y1 = cfg.yLog ? y1 * 1.15 : y1 + (y1 - y0) * 0.06;
+  if (cfg.yLog && cfg.yMin == null) y0 = y0 / 1.15;
+  const pad = cfg.kind === "bars" ? (x1 - x0) / xs.length : (x1 - x0) * 0.012;
+  const X = v => m.l + (v - (x0 - pad)) / (x1 - x0 + 2 * pad) * (W - m.l - m.r);
+  const Y = cfg.yLog
+    ? v => H - m.b - (Math.log(v) - Math.log(y0)) / (Math.log(y1) - Math.log(y0)) * (H - m.t - m.b)
+    : v => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  const yf = cfg.yFmt || (v => num(v));
+
+  for (const b of cfg.bands || []) {
+    el("rect", { x: X(b.x0), y: m.t, width: X(b.x1) - X(b.x0), height: H - m.t - m.b, fill: "var(--band)" }, svg);
+    el("text", { x: X(b.x0) + 6, y: m.t + 15 }, svg).textContent = b.label;
+  }
+  for (const v of cfg.yLog ? logTicks(y0, y1) : niceTicks(y0, y1, 5)) {
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: "grid" }, svg);
+    el("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, svg).textContent = yf(v);
+  }
+  el("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: "ax" }, svg);
+  const xt = cfg.x === "time"
+    ? Array.from({ length: 7 }, (_, i) => x0 + (x1 - x0) * i / 6).map(v => Math.round(v / 864e5) * 864e5)
+    : niceTicks(x0, x1, 8);
+  for (const v of xt) el("text", { x: X(v), y: H - m.b + 17, "text-anchor": "middle" }, svg).textContent = cfg.x === "time" ? fmtDay(v) : num(v);
+  if (cfg.yLabel) el("text", { x: m.l, y: 12 }, svg).textContent = cfg.yLabel;
+  if (cfg.xLabel) el("text", { x: W - m.r, y: H - 2, "text-anchor": "end" }, svg).textContent = cfg.xLabel;
+
+  for (const l of cfg.hlines || []) {
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(l.y), y2: Y(l.y), stroke: "var(--muted)", "stroke-width": 1.5, "stroke-dasharray": l.solid ? "" : "6 4" }, svg);
+    if (l.label) el("text", { x: l.left ? m.l + 6 : W - m.r - 4, y: Y(l.y) - 6, "text-anchor": l.left ? "start" : "end", class: "halo" }, svg).textContent = l.label;
+  }
+  for (const s of cfg.series) {
+    if (s.kind === "line") {
+      el("path", { d: s.pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(""), fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    } else if (s.kind === "bars") {
+      const bw = Math.max(3, (W - m.l - m.r) / ((x1 - x0) / 864e5 + 2) - 2);
+      for (const p of s.pts) if (p[1] > 0) {
+        const top = Y(p[1]), base = Y(Math.max(y0, 0));
+        el("rect", { x: X(p[0]) - bw / 2, y: top, width: bw, height: base - top, rx: Math.min(3, bw / 2), fill: p[2] || s.color }, svg);
+      }
+    } else {
+      const g = el("g", { fill: s.color, opacity: s.opacity || 1 }, svg);
+      for (const p of s.pts) el("circle", { cx: X(p[0]).toFixed(1), cy: Y(p[1]).toFixed(1), r: s.r || 2.2 }, g);
+    }
+  }
+  for (const l of cfg.vlines || []) {
+    el("line", { x1: X(l.x), x2: X(l.x), y1: m.t - 4, y2: H - m.b, stroke: "var(--text)", "stroke-width": 1.5 }, svg);
+    const right = X(l.x) < W * 0.72;
+    const tx = el("text", { x: X(l.x) + (right ? 6 : -6), y: m.t - 10, "text-anchor": right ? "start" : "end" }, svg);
+    tx.textContent = l.label; tx.style.fill = "var(--text)"; tx.style.fontWeight = 600;
+  }
+
+  // crosshair + tooltip listing every series at the nearest x
+  const ux = [...new Set(xs)].sort((a, b) => a - b);
+  const at = new Map();
+  cfg.series.forEach((s, si) => s.pts.forEach(p => { if (!at.has(p[0])) at.set(p[0], []); at.get(p[0]).push([si, p]); }));
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: "var(--muted)", "stroke-width": 1, visibility: "hidden" }, svg);
+  const tip = h("div", "tip", null, card);
+  const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", tabindex: 0 }, svg);
+  const show = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) / r.width * W;
+    const xv = (px - m.l) / (W - m.l - m.r) * (x1 - x0 + 2 * pad) + (x0 - pad);
+    let lo = 0, hi = ux.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ux[mid] < xv) lo = mid; else hi = mid; }
+    const x = Math.abs(ux[lo] - xv) <= Math.abs(ux[hi] - xv) ? ux[lo] : ux[hi];
+    cross.setAttribute("x1", X(x)); cross.setAttribute("x2", X(x)); cross.setAttribute("visibility", "visible");
+    tip.textContent = "";
+    h("div", "h", cfg.x === "time" ? fmtDate(x) : (cfg.xName || "") + " " + num(x), tip);
+    for (const [si, p] of at.get(x)) {
+      const s = cfg.series[si], row = h("div", "r", null, tip);
+      h("i", null, null, row).style.background = p[2] || s.color;
+      h("b", null, (s.fmt || yf)(p[4] ?? p[1]), row);
+      h("span", null, p[3] || s.name, row);
+    }
+    if (cfg.extra) for (const [k, v] of cfg.extra(x)) { const row = h("div", "r", null, tip); h("b", null, v, row); h("span", null, k, row); }
+    tip.style.display = "block";
+    const cr = card.getBoundingClientRect(), left = r.left - cr.left + X(x) / W * r.width;
+    tip.style.left = (left + 14 + tip.offsetWidth > cr.width ? left - tip.offsetWidth - 14 : left + 14) + "px";
+    tip.style.top = (ev.clientY - cr.top - 20) + "px";
+  };
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+}
+
+/* Horizontal grouped bars with per-bar hover. rows: [{label, bars:[{v,color,name}]}] */
+function hbars(host, cfg) {
+  host = document.getElementById(host);
+  host.textContent = "";
+  const card = host.closest(".card");
+  legend(host, cfg.legend);
+  const bh = cfg.bh || 9, gap = 2, rowH = cfg.rows[0].bars.length * (bh + gap) + 9;
+  const W = 520, m = { l: 50, r: 44, t: 6, b: 24 }, H = m.t + m.b + rowH * cfg.rows.length;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.label || "" }, host);
+  const x0 = cfg.xMin || 0, x1 = cfg.xMax || Math.max(...cfg.rows.flatMap(r => r.bars.map(b => b.v))) * 1.05;
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+  for (const v of niceTicks(x0, x1, 5)) {
+    el("line", { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, class: "grid" }, svg);
+    el("text", { x: X(v), y: H - m.b + 15, "text-anchor": "middle" }, svg).textContent = cfg.fmt(v);
+  }
+  if (cfg.ref != null) el("line", { x1: X(cfg.ref), x2: X(cfg.ref), y1: m.t, y2: H - m.b, stroke: "var(--muted)", "stroke-dasharray": "6 4", "stroke-width": 1.5 }, svg);
+  const tip = h("div", "tip", null, card);
+  cfg.rows.forEach((row, i) => {
+    const y = m.t + i * rowH + 4;
+    el("text", { x: m.l - 8, y: y + (rowH - 9) / 2 + 3, "text-anchor": "end" }, svg).textContent = row.label;
+    row.bars.forEach((b, j) => {
+      if (b.v == null) return;
+      const by = y + j * (bh + gap), b0 = X(cfg.base ?? x0), w = Math.max(1.5, Math.abs(X(b.v) - b0));
+      const r = el("rect", { x: Math.min(b0, X(b.v)), y: by, width: w, height: bh, rx: 3, fill: b.color, tabindex: 0 }, svg);
+      if (j === 0 && cfg.labelFirst) el("text", { x: X(b.v) + 5, y: by + bh - 1 }, svg).textContent = cfg.fmt(b.v);
+      const hitR = el("rect", { x: X(x0), y: by - 1, width: W - m.l - m.r, height: bh + 2, fill: "transparent" }, svg);
+      const show = ev => {
+        tip.textContent = "";
+        h("div", "h", row.label + (row.note ? " · " + row.note : ""), tip);
+        for (const bb of row.bars) if (bb.v != null) { const rr = h("div", "r", null, tip); h("i", null, null, rr).style.background = bb.color; h("b", null, cfg.fmt(bb.v), rr); h("span", null, bb.name, rr); }
+        tip.style.display = "block";
+        const cr = card.getBoundingClientRect();
+        tip.style.left = Math.min(ev.clientX - cr.left + 14, cr.width - tip.offsetWidth - 6) + "px";
+        tip.style.top = (ev.clientY - cr.top + 12) + "px";
+        r.setAttribute("opacity", 0.8);
+      };
+      hitR.addEventListener("pointermove", show);
+      hitR.addEventListener("pointerleave", () => { tip.style.display = "none"; r.setAttribute("opacity", 1); });
+    });
+  });
+}
+
+function tiles(id, items) {
+  const host = document.getElementById(id);
+  for (const [k, v, d] of items) { const c = h("div", "tile", null, host); h("div", "k", k, c); h("div", "v", v, c); h("div", "d", d, c); }
+}
+
+const T = D.tiles, cp = t(T.cp_date), pct = v => num(v) + "%";
+document.getElementById("hdr").textContent =
+  `${num(T.runs)} production runs, ${T.sensors} screened sensors, ${T.fails} failed runs`;
+tiles("tiles", [
+  ["Pass rate before change", T.pass_before + "%", "Phase I, runs 1 to " + (T.cp_run - 1)],
+  ["Pass rate after change", T.pass_after + "%", "Phase II, from run " + T.cp_run],
+  ["Change point", fmtDay(cp), "run " + T.cp_run + ", detected without labels"],
+  ["Alarms per day, frozen limits", num(T.alarms_frozen, 1), "monitoring period, " + T.monitor_days + " days"],
+  ["Alarms per day, re-baselined", num(T.alarms_rebased, 2), "same period, limits refitted"],
+]);
+tiles("tiles-alarm", [
+  ["Frozen Phase I limits", num(T.alarms_frozen, 1) + " / day", "alarms in the monitoring period"],
+  ["Re-baselined limits", num(T.alarms_rebased, 2) + " / day", "refitted on 250 passing runs"],
+  ["Rolling limits", num(T.alarms_rolling, 2) + " / day", "refitted daily, last 150 passing runs"],
+  ["SPE share, 7 frozen-then-live sensors", T.frozen_share_p2 + "%", "after the change; " + T.frozen_share_p1 + "% before"],
+]);
+
+const dd = D.daily, dx = dd.date.map(t);
+const drawn = {};
+const pages = {
+  overview() {
+    chart("c-pass", {
+      x: "time", h: 300, yMin: 0, yMax: 100, yFmt: pct, label: "Daily pass rate with 7-day rolling mean",
+      series: [
+        { name: "Daily pass rate", kind: "dots", color: "var(--neutral)", r: 3, pts: dx.map((x, i) => [x, dd.pass[i]]), fmt: v => num(v, 1) + "%" },
+        { name: "7-day rolling mean", kind: "line", color: "var(--s1)", pts: dx.map((x, i) => [x, dd.roll[i]]), fmt: v => num(v, 1) + "%" },
+      ],
+      vlines: [{ x: cp, label: "Change point, " + fmtDay(cp) }],
+      extra: x => { const i = dx.indexOf(x); return [["runs", num(dd.runs[i])], ["failed", num(dd.fails[i])]]; },
+    });
+    chart("c-fails", {
+      x: "time", h: 230, kind: "bars", yMin: 0, label: "Failed runs per day",
+      series: [{ name: "Failed runs", kind: "bars", color: "var(--s1)", pts: dx.map((x, i) => [x, dd.fails[i], dd.laney[i] ? "var(--s2)" : null, dd.laney[i] ? "failed runs, above Laney limit" : "failed runs"]) }],
+      vlines: [{ x: cp, label: "Change point" }],
+      extra: x => [["runs that day", num(dd.runs[dx.indexOf(x)])]],
+    });
+    const lg = document.querySelector("#c-fails");
+    const box = h("div", "legend"); lg.prepend(box);
+    for (const [c, n] of [["var(--s1)", "Within limits"], ["var(--s2)", "Above Laney p′ limit"]]) { const s = h("span", null, null, box); h("i", "box", null, s).style.background = c; s.appendChild(document.createTextNode(n)); }
+  },
+  mspc() {
+    const R = D.runs, mk = (key, ucl, id, name) => chart(id, {
+      x: "num", xName: "Run", h: 300, yLog: true, label: name + " by run",
+      series: [
+        { name: "Passing run", kind: "dots", color: "var(--s1)", opacity: 0.55, pts: R.run.map((r, i) => [r, R[key][i]]).filter((_, i) => !R.fail[i]), fmt: v => num(v, 1) },
+        { name: "Failed run", kind: "dots", color: "var(--s2)", r: 3, pts: R.run.map((r, i) => [r, R[key][i]]).filter((_, i) => R.fail[i]), fmt: v => num(v, 1) },
+      ],
+      hlines: [{ y: ucl, label: "99% limit from Phase I: " + num(ucl), legend: "Frozen Phase I limit", left: true }],
+      vlines: [{ x: T.cp_run, label: "Change point, run " + T.cp_run }],
+      xLabel: "run (time order), log y-axis",
+    });
+    mk("spe", R.spe_ucl, "c-spe", "SPE");
+    mk("t2", R.t2_ucl, "c-t2", "Hotelling T²");
+  },
+  alarms() {
+    const A = D.alarms, ax = A.date.map(t), ms = t(T.monitor_start);
+    chart("c-alarms", {
+      x: "time", h: 320, yMin: 0, label: "Alarms per day under three limit strategies",
+      bands: [{ x0: ms, x1: ax[ax.length - 1], label: "monitoring period" }],
+      series: [
+        { name: "Frozen Phase I limits", kind: "line", color: "var(--s1)", pts: ax.map((x, i) => [x, A.frozen[i]]) },
+        { name: "Re-baselined after the change", kind: "line", color: "var(--s2)", pts: ax.map((x, i) => [x, A.rebased[i]]).filter(p => p[0] >= ms) },
+        { name: "Rolling, refitted daily", kind: "line", color: "var(--s3)", pts: ax.map((x, i) => [x, A.rolling[i]]) },
+      ],
+      vlines: [{ x: cp, label: "Change point" }],
+      yLabel: "alarms per day",
+    });
+  },
+  sensors() {
+    const C = D.contrib, K = D.rank, p1 = v => num(v, 1) + "%";
+    hbars("c-contrib", {
+      fmt: p1, bh: 9, labelFirst: true, label: "Share of SPE by sensor and phase",
+      legend: [{ name: "After change, frozen-then-live sensor", color: "var(--s2)", shape: "box" }, { name: "After change, other sensor", color: "var(--s1)", shape: "box" }, { name: "Before change", color: "var(--neutral)", shape: "box" }],
+      rows: C.sensor.map((s, i) => ({ label: s, note: C.frozen[i] ? "frozen-then-live" : "", bars: [
+        { v: C.p2[i], color: C.frozen[i] ? "var(--s2)" : "var(--s1)", name: "after the change" },
+        { v: C.p1[i], color: "var(--neutral)", name: "before the change" }] })),
+    });
+    hbars("c-rank", {
+      fmt: v => num(v, 2), bh: 8, xMin: 0.3, xMax: 0.8, ref: 0.5, base: 0.5, label: "Single-sensor AUC, training against hold-out",
+      legend: [{ name: "Training period", color: "var(--s1)", shape: "box" }, { name: "Later hold-out", color: "var(--s2)", shape: "box" }, { name: "Chance (0.5)", shape: "dash" }],
+      rows: K.sensor.map((s, i) => ({ label: s, note: K.holds[i] ? "direction holds on later data" : "direction flips on later data", bars: [
+        { v: K.auc[i], color: "var(--s1)", name: "training AUC" },
+        { v: K.test_auc[i], color: "var(--s2)", name: "hold-out AUC" }] })),
+    });
+  },
+  spc() {
+    const sel = document.getElementById("sel");
+    if (!sel.options.length) {
+      for (const s of Object.keys(D.spc)) { const o = h("option", null, s + " (rank " + D.spc[s].rank + ")", sel); o.value = s; }
+      sel.addEventListener("change", pages.spc);
+    }
+    const S = D.spc[sel.value], pts = S.run.map((r, i) => [r, S.value[i], S.rule[i]]).filter(p => p[1] != null);
+    const sorted = pts.map(p => p[1]).sort((a, b) => a - b), q = p => sorted[Math.floor(p * (sorted.length - 1))];
+    const span = Math.max(S.ucl - S.lcl, 1e-9), lo = Math.max(q(0.002), S.lcl - 1.2 * span), hi = Math.min(q(0.998), S.ucl + 1.2 * span);
+    const clip = v => Math.min(hi, Math.max(lo, v));
+    const n = S.rule.reduce((a, b) => a + b, 0);
+    document.getElementById("spc-info").textContent = `${num(n)} of ${num(S.run.length)} runs signal (${num(100 * n / S.run.length, 1)}%)`;
+    chart("c-spc", {
+      x: "num", xName: "Run", h: 340, yMin: Math.min(lo, S.lcl) - span * 0.05, yMax: Math.max(hi, S.ucl) + span * 0.05,
+      yFmt: v => num(v, Math.abs(S.ucl - S.lcl) < 5 ? 2 : 0), label: "Individuals chart for " + sel.value,
+      series: [
+        { name: "In control", kind: "dots", color: "var(--s1)", opacity: 0.6, pts: pts.filter(p => !p[2]).map(p => [p[0], clip(p[1]), null, null, p[1]]), fmt: v => num(v, 2) },
+        { name: "Nelson rule signal", kind: "dots", color: "var(--crit)", r: 2.6, pts: pts.filter(p => p[2]).map(p => [p[0], clip(p[1]), null, null, p[1]]), fmt: v => num(v, 2) },
+      ],
+      hlines: [{ y: S.ucl, label: "UCL " + num(S.ucl, 2), legend: "Phase I limits and centre line" }, { y: S.cl, solid: true }, { y: S.lcl, label: "LCL " + num(S.lcl, 2) }],
+      vlines: [{ x: T.cp_run, label: "Change point" }],
+      xLabel: "run (time order); extreme values are clipped to the axis edge",
+    });
+  },
+};
+function go(name) {
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-selected", b.dataset.tab === name);
+  for (const s of document.querySelectorAll("main > section")) s.hidden = s.id !== name;
+  if (!drawn[name]) { pages[name](); drawn[name] = true; }
+  history.replaceState(null, "", "#" + name);
+}
+document.querySelector("nav").addEventListener("click", e => { if (e.target.dataset.tab) go(e.target.dataset.tab); });
+go(pages[location.hash.slice(1)] ? location.hash.slice(1) : "overview");
+</script>
+</body>
+</html>

@@ -26,7 +26,7 @@ import pandas as pd  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, LogNorm  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
-from matplotlib.ticker import FuncFormatter, PercentFormatter  # noqa: E402
+from matplotlib.ticker import FuncFormatter, MultipleLocator, PercentFormatter  # noqa: E402
 
 BLUE = "#2a78d6"
 BLUE_LIGHT = "#9ec5f4"
@@ -386,6 +386,37 @@ def contribution_figure(contrib: list[tuple[str, float]], run_id: int, stat: str
     ax.grid(axis="y", visible=False)
     ax.tick_params(axis="y", labelcolor=INK2, labelsize=8.5)
     _title(ax, f"{stat} contributions, run {run_id}", f"share of the run's {stat} from each sensor (top {len(names)})")
+    save(fig, path)
+
+
+def phase_contribution_figure(shares: pd.DataFrame, path: Path) -> None:
+    """Paired bars: share of total SPE per sensor, Phase I against Phase II."""
+    d = shares.iloc[::-1]
+    y = np.arange(len(d))
+    h = 0.36
+    fig, ax = plt.subplots(figsize=(7.4, 0.44 * len(d) + 1.5))
+    ax.barh(y + h / 2, 100 * d.share_phase2, height=h, color=np.where(d.frozen_then_live, ORANGE, BLUE))
+    ax.barh(y - h / 2, 100 * d.share_phase1, height=h, color=AXIS)
+    top = 100 * d.share_phase2.max()
+    for i, v in enumerate(100 * d.share_phase2):
+        ax.text(v + top * 0.015, i + h / 2, f"{v:.1f}%", va="center", fontsize=8, color=INK2)
+    ax.set_yticks(y, d.index)
+    ax.set_xlim(0, top * 1.14)
+    ax.xaxis.set_major_locator(MultipleLocator(5 if top > 12 else 2 if top > 5 else 1))
+    ax.xaxis.set_major_formatter(PercentFormatter(decimals=0))
+    ax.grid(axis="y", visible=False)
+    ax.tick_params(axis="y", labelcolor=INK2, labelsize=8.5)
+    ax.legend(
+        handles=[
+            Patch(color=ORANGE, label="Phase II, frozen-then-live sensor"),
+            Patch(color=BLUE, label="Phase II, other sensor"),
+            Patch(color=AXIS, label="Phase I"),
+        ],
+        loc="lower right",
+        frameon=False,
+        fontsize=8,
+    )
+    _title(ax, "Sensors behind the SPE shift", f"share of total SPE in each phase, top {len(d)} sensors by Phase II share")
     save(fig, path)
 
 

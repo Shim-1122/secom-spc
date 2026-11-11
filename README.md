@@ -6,7 +6,9 @@ Shyam Iyer, Rutgers University
 
 **Key finding:** a sensor instrumentation change on 7 September 2008 (run 737) made frozen control limits raise about 15 false alarms per day; re-baselining after the change cut that to under 1 per day.
 
-![Hotelling T² and SPE by run in JMP: SPE steps up sharply at the change point near run 737](docs/img/jmp_t2_spe.jpg)
+![Walkthrough: SPE steps up at run 737, four sensors carry the shift, and re-baselining cuts alarms from about 15 a day to under 1](docs/img/walkthrough.gif)
+
+A 50-second walkthrough of the result ([full-quality MP4](docs/walkthrough.mp4)). An interactive version of the dashboard is in [docs/index.html](docs/index.html) (Section 5.3).
 
 ## Engineering summary
 
@@ -131,6 +133,12 @@ For the failing Phase II run with the largest SPE (run 1145), four of the frozen
 ![Figure 6](reports/figures/06b_spe_contribution.png)
 
 *Figure 6. Share of SPE contributed by the top eight sensors for run 1145.*
+
+The same holds across all runs. Summing SPE contributions over each phase, the seven frozen-then-live sensors carry 2.6 % of total SPE before the change and 58.3 % after it, and four of them (S543, S545, S542, S544) account for almost all of that (Figure 6b). No other sensor exceeds 1.2 %.
+
+![Figure 6b](reports/figures/06c_spe_contribution_by_phase.png)
+
+*Figure 6b. Share of total SPE by sensor in each phase, for the twelve sensors with the largest Phase II share. Phase I shares come from the model fitted on those runs.*
 
 Table 2. Alarm rates in the monitoring period under different sensor sets and baselines (empirical 99 % limits).
 
@@ -258,9 +266,25 @@ The rolling mean shows the pass rate stabilising near 95 to 100 percent after th
 
 The SPE panel shows the step change near run 737 more clearly than any single sensor.
 
+### 5.3 Interactive dashboard and walkthrough
+
+[docs/index.html](docs/index.html) is a single self-contained HTML file (no server, no external libraries) with five pages: overview, multivariate monitor, alarm burden, sensors and per-sensor control charts. It is generated from the exports by `python scripts/build_dashboard.py` and gives the same views to a reader without Spotfire or JMP. The walkthrough video at the top of this page is rendered from the same exports by `python scripts/make_walkthrough.py`.
+
 ## 6. Limitations
 
 Sensor identities, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed. Without lot, wafer, tool or chamber identifiers, commonality analysis, often the first step in a real yield investigation, is not possible. The data contain 104 failures, 26 in the test partition and 28 in the monitoring period, so confidence intervals are wide and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented here. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The change point is estimated, not recorded; its plateau spans 4 to 9 September. The Spotfire dashboard (Section 5.1) covers four of the five pages in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md). The JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) was run manually in JMP 19 (Section 5.2) but is not part of continuous integration.
+
+### 6.1 What would change with production fab data
+
+SECOM removes most of the context a yield or process engineer would start from. With access to that context, the analysis would proceed differently, in roughly this order.
+
+1. **Confirm the change against equipment records.** The first question about 7 September is what happened on the tool. Maintenance logs, sensor replacements, recipe revisions and software updates would be checked against the date before any statistical conclusion is drawn. The four sensors in Figure 6b would be mapped to physical instruments.
+2. **Commonality analysis before sensor models.** With lot, wafer, tool, chamber and recipe identifiers, the first test is whether failures concentrate on one tool, chamber or route. That usually explains more than any sensor ranking, and it cannot be done here.
+3. **Baselines per tool, chamber and recipe.** One pooled baseline, as used here, mixes populations. Limits would be kept per context and re-baselined on a defined trigger, such as preventive maintenance or a qualified recipe change, instead of on a detected change point alone.
+4. **Real specification limits.** Cp and Cpk would be computed against engineering specifications for named parameters. The proxy values in this repository are not capability estimates.
+5. **A richer outcome.** A single pass or fail per run would be replaced with wafer-level or die-level yield, bin codes and inline metrology, so that a sensor excursion can be tied to a specific defect mode.
+6. **An alarm budget agreed with the process owners.** The alarm-burden figures in Table 3 would become a design target: how many alarms per shift the team can investigate, which signals page someone and which only log, and what the out-of-control action plan is for each.
+7. **Autocorrelation and within-lot structure.** Runs are treated as independent here. With lot structure known, limits would account for within-lot correlation and run-to-run control.
 
 ## 7. Reproducing the analysis
 
@@ -272,7 +296,9 @@ cd secom-spc
 python -m pip install -e ".[dev]"
 python -m secom_spc.pipeline          # full analysis, about 8 minutes
 python -m secom_spc.pipeline --fast   # reduced bootstrap; no shuffled CV; about 2 minutes
-pytest                                # 40 unit tests
+pytest                                # 41 unit tests
+python scripts/build_dashboard.py     # interactive dashboard, docs/index.html
+python scripts/make_walkthrough.py    # walkthrough video and GIF (needs ffmpeg)
 ```
 
 Every number in this document is written to `reports/summary.json` by the pipeline. Parameters (phase boundary rule, re-baselining and rolling windows, chart constants, PCA variance target, model settings) are defined in [src/secom_spc/config.py](src/secom_spc/config.py). Proxy-specification Cpk and Ppk values, which are not used in this report, are in `reports/tables/capability_proxy_specs.csv`.
@@ -296,7 +322,9 @@ src/secom_spc/
   plots.py          figures
   pipeline.py       end-to-end analysis, one function per stage
 tests/              unit tests: constants, run rules, change point, MSPC, leakage, confounding
-docs/               methodology and Spotfire dashboard specification
+docs/               methodology, Spotfire specification, interactive dashboard (index.html), walkthrough
+scripts/            data download, dashboard builder, walkthrough renderer
+spotfire/           Spotfire analysis file
 jmp/                JMP script that rebuilds the charts from the exports
 reports/            figures, tables, dashboard exports and summary.json
 data/raw/           the original UCI files
@@ -314,6 +342,7 @@ data/raw/           the original UCI files
 | `spc_top_sensors_long.csv` | run and sensor (top 20) | value, limits, z, moving range, EWMA, CUSUM, Nelson flags |
 | `sensor_ranking.csv` | sensor | ranking criteria and robustness checks |
 | `sensor_shift_spread.csv` | sensor | median shift, spread ratio and KS test between phases |
+| `spe_contribution_by_phase.csv` | sensor | share of total SPE before and after the change point |
 
 ## References
 

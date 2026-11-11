@@ -149,3 +149,17 @@ def top_contributors(contrib: pd.DataFrame, run_idx, k: int = 5) -> list[tuple[s
     share = row.abs() / row.abs().sum()
     top = share.sort_values(ascending=False).head(k)
     return list(zip(top.index, top.values))
+
+
+def phase_contribution_shares(contrib: pd.DataFrame, phase1: np.ndarray, phase2: np.ndarray) -> pd.DataFrame:
+    """Share of the total statistic carried by each sensor in each phase.
+
+    Sums the per-run contributions over all runs of a phase and divides by
+    the phase total, so the shares in each column add to one. Sorted by the
+    Phase II share.
+    """
+    c = contrib.abs()
+    s1 = c[phase1].sum()
+    s2 = c[phase2].sum()
+    out = pd.DataFrame({"share_phase1": s1 / s1.sum(), "share_phase2": s2 / s2.sum()})
+    return out.sort_values("share_phase2", ascending=False)
