@@ -4,6 +4,10 @@
 
 Shyam Iyer, Rutgers University
 
+**Key finding:** a sensor instrumentation change on 7 September 2008 (run 737) made frozen control limits raise about 15 false alarms per day; re-baselining after the change cut that to under 1 per day.
+
+![Hotelling T² and SPE by run in JMP: SPE steps up sharply at the change point near run 737](docs/img/jmp_t2_spe.jpg)
+
 ## Engineering summary
 
 | | |
