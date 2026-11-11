@@ -2,16 +2,15 @@
 // JMP companion to the Python pipeline. Rebuilds the main SPC views from the
 // CSV exports so they can be explored interactively in JMP.
 //
-// Usage: run `python -m secom_spc.pipeline` first, then in JMP open this file
-// and Run Script. When prompted, pick the reports/exports folder.
+// Usage: open this file in JMP and Run Script. The CSV exports are read
+// directly from the GitHub repository, so no local download is needed.
 //
 // Note: written against JMP 17/18 Control Chart Builder syntax. It has not
 // been executed in JMP as part of this repository's CI.
 
 Names Default To Here( 1 );
 
-root = Pick Directory( "Select the secom-spc/reports/exports folder" );
-If( Is Missing( root ) | root == "", Throw( "No folder selected" ) );
+root = "https://raw.githubusercontent.com/Shim-1122/secom-spc/main/reports/exports/";
 
 // ---------------------------------------------------------------------------
 // 1. Individuals / moving range charts for the top failure-predictive sensors,
