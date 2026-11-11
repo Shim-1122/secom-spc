@@ -242,9 +242,21 @@ The exported CSVs were loaded into a Spotfire analysis (Spotfire 15.1, data embe
 
 The rolling mean shows the pass rate stabilising near 95 to 100 percent after the detected change point. Two days exceed the binomial p-chart limit; the overdispersion-corrected Laney limits flag fewer. Most sensors sit near AUC 0.5, with a short tail of weakly informative sensors, consistent with Section 4.
 
+### 5.2 JMP
+
+[jmp/secom_spc.jsl](jmp/secom_spc.jsl) reads the exports directly from this repository and rebuilds the main views in JMP 19.
+
+| I-MR charts by sensor, Phase I limits applied to Phase II | Hotelling T² and SPE by run, colored by result |
+|---|---|
+| ![JMP I-MR](docs/img/jmp_imr_top_sensors.jpg) | ![JMP T2 SPE](docs/img/jmp_t2_spe.jpg) |
+| **Daily pass rate and 7-day rolling mean** | **I-MR chart of daily failures** |
+| ![JMP pass rate](docs/img/jmp_pass_rate_rolling.jpg) | ![JMP daily fails](docs/img/jmp_daily_fails_imr.jpg) |
+
+The SPE panel shows the step change near run 737 more clearly than any single sensor.
+
 ## 6. Limitations
 
-Sensor identities, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed. Without lot, wafer, tool or chamber identifiers, commonality analysis, often the first step in a real yield investigation, is not possible. The data contain 104 failures, 26 in the test partition and 28 in the monitoring period, so confidence intervals are wide and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented here. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The change point is estimated, not recorded; its plateau spans 4 to 9 September. The Spotfire dashboard (Section 5.1) covers four of the five pages in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md), and the JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) has not been run in JMP as part of continuous integration.
+Sensor identities, units and specification limits are unknown, so no sensor can be interpreted physically and capability cannot be assessed. Without lot, wafer, tool or chamber identifiers, commonality analysis, often the first step in a real yield investigation, is not possible. The data contain 104 failures, 26 in the test partition and 28 in the monitoring period, so confidence intervals are wide and differences of a few hundredths in AUC are not meaningful. The outcome comes from a downstream test that may depend on steps not represented here. Runs are treated as independent, although autocorrelation is likely and would raise univariate alarm rates. The change point is estimated, not recorded; its plateau spans 4 to 9 September. The Spotfire dashboard (Section 5.1) covers four of the five pages in [docs/spotfire_dashboard.md](docs/spotfire_dashboard.md). The JMP script in [jmp/secom_spc.jsl](jmp/secom_spc.jsl) was run manually in JMP 19 (Section 5.2) but is not part of continuous integration.
 
 ## 7. Reproducing the analysis
 

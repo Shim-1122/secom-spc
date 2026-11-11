@@ -5,8 +5,7 @@
 // Usage: open this file in JMP and Run Script. The CSV exports are read
 // directly from the GitHub repository, so no local download is needed.
 //
-// Note: written against JMP 17/18 Control Chart Builder syntax. It has not
-// been executed in JMP as part of this repository's CI.
+// Tested in JMP 19.
 
 Names Default To Here( 1 );
 
