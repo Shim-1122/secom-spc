@@ -232,7 +232,7 @@ Shuffled cross-validation overstated achievable performance by about 0.2 AUC on 
 
 ### 5.1 Spotfire dashboard
 
-The exported CSVs were loaded into a Spotfire analysis (Spotfire 15.1, data embedded in the file). The four pages below reproduce the main monitoring views.
+The exported CSVs were loaded into a Spotfire analysis (Spotfire 15.1, data embedded in the file): [spotfire/SECOM_SPC_Dashboard.dxp](spotfire/SECOM_SPC_Dashboard.dxp). The four pages below reproduce the main monitoring views.
 
 | Weekly line-test pass rate | Daily pass rate, 7-day rolling mean, change point (7 Sep) |
 |---|---|
