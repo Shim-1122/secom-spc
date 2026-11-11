@@ -8,7 +8,7 @@ Shyam Iyer, Rutgers University
 
 ![Walkthrough: SPE steps up at run 737, four sensors carry the shift, and re-baselining cuts alarms from about 15 a day to under 1](docs/img/walkthrough.gif)
 
-A 50-second walkthrough of the result ([full-quality MP4](docs/walkthrough.mp4)). An interactive version of the dashboard is in [docs/index.html](docs/index.html) (Section 5.3).
+A 50-second walkthrough of the result ([full-quality MP4](docs/walkthrough.mp4)). **[Open the live interactive dashboard](https://shim-1122.github.io/secom-spc/)** (Section 5.3).
 
 ## Engineering summary
 
@@ -268,7 +268,7 @@ The SPE panel shows the step change near run 737 more clearly than any single se
 
 ### 5.3 Interactive dashboard and walkthrough
 
-[docs/index.html](docs/index.html) is a single self-contained HTML file (no server, no external libraries) with five pages: overview, multivariate monitor, alarm burden, sensors and per-sensor control charts. It is generated from the exports by `python scripts/build_dashboard.py` and gives the same views to a reader without Spotfire or JMP. The walkthrough video at the top of this page is rendered from the same exports by `python scripts/make_walkthrough.py`.
+The dashboard is live at [https://shim-1122.github.io/secom-spc/](https://shim-1122.github.io/secom-spc/); its source, [docs/index.html](docs/index.html), is a single self-contained HTML file (no server, no external libraries) with five pages: overview, multivariate monitor, alarm burden, sensors and per-sensor control charts. It is generated from the exports by `python scripts/build_dashboard.py` and gives the same views to a reader without Spotfire or JMP. The walkthrough video at the top of this page is rendered from the same exports by `python scripts/make_walkthrough.py`.
 
 ## 6. Limitations
 
