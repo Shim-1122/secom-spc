@@ -10,6 +10,8 @@ Shyam Iyer, Rutgers University
 
 A 50-second walkthrough of the result ([full-quality MP4](docs/walkthrough.mp4)). **[Open the live interactive dashboard](https://shim-1122.github.io/secom-spc/)** (Section 5.3).
 
+Tools: [Spotfire dashboard](spotfire/SECOM_SPC_Dashboard.dxp) | [JMP script](jmp/secom_spc.jsl) | [Excel workbook with VBA macros](excel/SECOM_SPC.xlsm) ([module](excel/SECOM_SPC.bas)) | [Python package](src/secom_spc)
+
 ## Engineering summary
 
 | | |
