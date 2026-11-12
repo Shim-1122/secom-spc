@@ -334,16 +334,17 @@ src/secom_spc/
   pipeline.py       end-to-end analysis, one function per stage
 tests/              unit tests: constants, run rules, change point, MSPC, leakage, confounding
 docs/               methodology, Spotfire specification, interactive dashboard (index.html), walkthrough
-scripts/            data download, dashboard builder, walkthrough renderer
+scripts/            data download, dashboard builder, walkthrough renderer, Excel workbook builder
 spotfire/           Spotfire analysis file
 jmp/                JMP script that rebuilds the charts from the exports
+excel/              Excel workbook (.xlsm) and VBA module for SPC limits, charts and re-baselining
 reports/            figures, tables, dashboard exports and summary.json
 data/raw/           the original UCI files
 ```
 
 ### Outputs for dashboards
 
-`reports/exports/` contains tidy CSV files for Spotfire, JMP or a spreadsheet:
+`reports/exports/` contains tidy CSV files for Spotfire, JMP, Excel or a spreadsheet:
 
 | File | One row per | Contents |
 |---|---|---|
